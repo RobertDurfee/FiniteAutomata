@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 use std::iter;
 
-use crate::{StateIndex, TransitionIndex};
+use crate::{StateIndex, TransitionIndex, ENFA, DFA};
 
 pub struct NondeterministicFiniteAutomaton<S, T> {
     state_to_index: Map<Rc<S>, StateIndex>,
@@ -133,6 +133,18 @@ where
 }
 
 pub type NFA<S, T> = NondeterministicFiniteAutomaton<S, T>;
+
+impl<S, T> From<ENFA<S, T>> for NFA<S, T> {
+    fn from(_enfa: ENFA<S, T>) -> NFA<S, T> {
+        panic!("Not implemented")
+    }
+}
+
+impl<S, T> From<DFA<S, T>> for NFA<S, T> {
+    fn from(_dfa: DFA<S, T>) -> NFA<S, T> {
+        panic!("Not implemented")
+    }
+}
 
 #[cfg(test)]
 mod tests {

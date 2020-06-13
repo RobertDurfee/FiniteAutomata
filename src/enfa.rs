@@ -1,8 +1,26 @@
-use crate::NondeterministicFiniteAutomaton;
+use crate::{StateIndex, NFA, DFA};
 
-pub type EpsilonNondeterministicFiniteAutomaton<S, T> = NondeterministicFiniteAutomaton<S, Option<T>>;
+pub type EpsilonNondeterministicFiniteAutomaton<S, T> = NFA<S, Option<T>>;
 
 pub type ENFA<S, T> = EpsilonNondeterministicFiniteAutomaton<S, T>;
+
+impl<S, T> ENFA<S, T> {
+    pub fn get_closure<'a>(&'a self, _state_index: StateIndex) -> Box<dyn Iterator<Item = StateIndex> + 'a> {
+        panic!("Not implemented")
+    }
+}
+
+impl<S, T> From<NFA<S, T>> for ENFA<S, T> {
+    fn from(_nfa: NFA<S, T>) -> ENFA<S, T> {
+        panic!("Not implemented")
+    }
+}
+
+impl<S, T> From<DFA<S, T>> for ENFA<S, T> {
+    fn from(_dfa: DFA<S, T>) -> ENFA<S, T> {
+        panic!("Not implemented")
+    }
+}
 
 #[cfg(test)]
 mod tests {

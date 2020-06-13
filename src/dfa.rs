@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 use std::iter;
 
-use crate::{StateIndex, TransitionIndex};
+use crate::{StateIndex, TransitionIndex, ENFA, NFA};
 
 pub struct DeterministicFiniteAutomaton<S, T> {
     state_to_index: Map<Rc<S>, StateIndex>,
@@ -143,6 +143,18 @@ where
 }
 
 pub type DFA<S, T> = DeterministicFiniteAutomaton<S, T>;
+
+impl<S, T> From<ENFA<S, T>> for DFA<S, T> {
+    fn from(_enfa: ENFA<S, T>) -> DFA<S, T> {
+        panic!("Not implemented")
+    }
+}
+
+impl<S, T> From<NFA<S, T>> for DFA<S, T> {
+    fn from(_nfa: NFA<S, T>) -> DFA<S, T> {
+        panic!("Not implemented")
+    }
+}
 
 #[cfg(test)]
 mod tests {
