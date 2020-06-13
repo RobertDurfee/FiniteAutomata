@@ -6,22 +6,22 @@ use std::iter;
 
 use crate::{StateIndex, TransitionIndex};
 
-pub struct DeterministicFiniteAutomaton<StateData, TransitionData> {
-    state_to_index: Map<Rc<StateData>, StateIndex>,
-    index_to_state: Map<StateIndex, Rc<StateData>>,
-    transition_to_index: Map<StateIndex, Map<Rc<TransitionData>, (StateIndex, TransitionIndex)>>,
-    index_to_transition: Map<TransitionIndex, (StateIndex, Rc<TransitionData>, StateIndex)>,
+pub struct DeterministicFiniteAutomaton<S, T> {
+    state_to_index: Map<Rc<S>, StateIndex>,
+    index_to_state: Map<StateIndex, Rc<S>>,
+    transition_to_index: Map<StateIndex, Map<Rc<T>, (StateIndex, TransitionIndex)>>,
+    index_to_transition: Map<TransitionIndex, (StateIndex, Rc<T>, StateIndex)>,
     transitions_from: Map<StateIndex, Set<TransitionIndex>>,
     initial: StateIndex,
     finals: Set<StateIndex>,
 }
 
-impl<StateData, TransitionData> DeterministicFiniteAutomaton<StateData, TransitionData> 
+impl<S, T> DeterministicFiniteAutomaton<S, T> 
 where
-    StateData: Eq + Hash,
-    TransitionData: Eq + Hash,
+    S: Eq + Hash,
+    T: Eq + Hash,
 {
-    pub fn new(initial: StateData) -> DeterministicFiniteAutomaton<StateData, TransitionData> {
+    pub fn new(initial: S) -> DeterministicFiniteAutomaton<S, T> {
         let initial_rc = Rc::new(initial);
         DeterministicFiniteAutomaton {
             state_to_index: map![initial_rc.clone() => 0],
@@ -34,7 +34,7 @@ where
         }
     }
 
-    pub fn add_state(&mut self, state: StateData) -> StateIndex {
+    pub fn add_state(&mut self, state: S) -> StateIndex {
         if let Some(&state_index) = self.state_to_index.get(&state) {
             state_index
         } else {
@@ -46,11 +46,11 @@ where
         }
     }
 
-    pub fn contains_state(&self, state: &StateData) -> Option<StateIndex> {
+    pub fn contains_state(&self, state: &S) -> Option<StateIndex> {
         self.state_to_index.get(state).map(|&state_index| state_index)
     }
 
-    pub fn get_state(&self, state_index: StateIndex) -> &StateData {
+    pub fn get_state(&self, state_index: StateIndex) -> &S {
         self.index_to_state.get(&state_index).expect("state index out of bounds")
     }
 
@@ -62,7 +62,7 @@ where
         Box::new(self.index_to_state.keys().map(|&state_index| state_index))
     }
 
-    pub fn add_transition(&mut self, source: StateIndex, transition: TransitionData, target: StateIndex) -> TransitionIndex {
+    pub fn add_transition(&mut self, source: StateIndex, transition: T, target: StateIndex) -> TransitionIndex {
         if self.index_to_state.get(&source).is_none() {
             panic!("source state index out of bounds");
         }
@@ -91,7 +91,7 @@ where
         transition_index
     }
 
-    pub fn contains_transition(&self, source: StateIndex, transition: &TransitionData, target: StateIndex) -> Option<TransitionIndex> {
+    pub fn contains_transition(&self, source: StateIndex, transition: &T, target: StateIndex) -> Option<TransitionIndex> {
         if let Some(&target_and_index) = self.transition_to_index.get(&source).and_then(|transitions| transitions.get(transition)) {
             if target == target_and_index.0 {
                 Some(target_and_index.1)
@@ -103,7 +103,7 @@ where
         }
     }
 
-    pub fn get_transition(&self, transition_index: TransitionIndex) -> (StateIndex, &TransitionData, StateIndex) {
+    pub fn get_transition(&self, transition_index: TransitionIndex) -> (StateIndex, &T, StateIndex) {
         let (source, transition, target) = self.index_to_transition.get(&transition_index).expect("transition index out of bounds");
         (*source, &*transition, *target)
     }
