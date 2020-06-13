@@ -1,5 +1,5 @@
 [package]
-name = "nondeterministic_finite_automaton"
+name = "finite_automata"
 version = "0.1.0"
 authors = ["Robert Durfee <robert@durfee.io>"]
 edition = "2018"
