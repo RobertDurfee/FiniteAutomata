@@ -4,19 +4,31 @@ pub type EpsilonNondeterministicFiniteAutomaton<S, T> = NFA<S, Option<T>>;
 
 pub type ENFA<S, T> = EpsilonNondeterministicFiniteAutomaton<S, T>;
 
-impl<S, T> ENFA<S, T> {
+impl<S, T> ENFA<S, T> 
+where
+    S: Ord,
+    T: Ord,
+{
     pub fn get_closure<'a>(&'a self, _state_index: StateIndex) -> Box<dyn Iterator<Item = StateIndex> + 'a> {
         panic!("Not implemented")
     }
 }
 
-impl<S, T> From<NFA<S, T>> for ENFA<S, T> {
+impl<S, T> From<NFA<S, T>> for ENFA<S, T>
+where
+    S: Ord,
+    T: Ord,
+{
     fn from(_nfa: NFA<S, T>) -> ENFA<S, T> {
         panic!("Not implemented")
     }
 }
 
-impl<S, T> From<DFA<S, T>> for ENFA<S, T> {
+impl<S, T> From<DFA<S, T>> for ENFA<S, T>
+where
+    S: Ord,
+    T: Ord,
+{
     fn from(_dfa: DFA<S, T>) -> ENFA<S, T> {
         panic!("Not implemented")
     }
@@ -24,8 +36,7 @@ impl<S, T> From<DFA<S, T>> for ENFA<S, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet as Set;
-    use std::hash::Hash;
+    use std::collections::BTreeSet as Set;
     use std::fmt::Debug;
 
     use crate::enfa::ENFA;
@@ -36,7 +47,7 @@ mod tests {
         finals: Set<S>,
     }
 
-    fn assert_eq<S: Clone + Debug + Eq + Hash, T: Clone + Debug + Eq + Hash>(expected: Expected<S, T>, actual: ENFA<S, T>) {
+    fn assert_eq<S: Clone + Debug + Ord, T: Clone + Debug + Ord>(expected: Expected<S, T>, actual: ENFA<S, T>) {
         assert_eq!(expected.initial, actual.get_state(actual.get_initial()).clone());
         assert_eq!(expected.transitions, actual.transitions().map(|transition_index| actual.get_transition(transition_index)).map(|(source, transition, target)| (actual.get_state(source).clone(), transition.clone(), actual.get_state(target).clone())).collect());
         assert_eq!(expected.finals, actual.finals().map(|final_index| actual.get_state(final_index).clone()).collect());

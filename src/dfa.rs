@@ -1,6 +1,5 @@
-use std::collections::HashMap as Map;
-use std::collections::HashSet as Set;
-use std::hash::Hash;
+use std::collections::BTreeMap as Map;
+use std::collections::BTreeSet as Set;
 use std::rc::Rc;
 use std::iter;
 
@@ -18,8 +17,8 @@ pub struct DeterministicFiniteAutomaton<S, T> {
 
 impl<S, T> DeterministicFiniteAutomaton<S, T> 
 where
-    S: Eq + Hash,
-    T: Eq + Hash,
+    S: Ord,
+    T: Ord,
 {
     pub fn new(initial: S) -> DeterministicFiniteAutomaton<S, T> {
         let initial_rc = Rc::new(initial);
@@ -144,34 +143,32 @@ where
 
 pub type DFA<S, T> = DeterministicFiniteAutomaton<S, T>;
 
-impl<S, T> From<ENFA<S, T>> for DFA<S, T> {
-    fn from(_enfa: ENFA<S, T>) -> DFA<S, T> {
+impl<S, T> From<ENFA<S, T>> for DFA<Set<S>, T> 
+where
+    S: Ord,
+    T: Ord,
+{
+    fn from(_enfa: ENFA<S, T>) -> DFA<Set<S>, T> {
         panic!("Not implemented")
     }
 }
 
-impl<S, T> From<NFA<S, T>> for DFA<S, T> {
-    fn from(_nfa: NFA<S, T>) -> DFA<S, T> {
+impl<S, T> From<NFA<S, T>> for DFA<Set<S>, T>
+where
+    S: Ord,
+    T: Ord,
+{
+    fn from(_nfa: NFA<S, T>) -> DFA<Set<S>, T> {
         panic!("Not implemented")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet as Set;
-    use std::hash::Hash;
+    use std::collections::BTreeSet as Set;
     use std::fmt::Debug;
 
     use crate::dfa::DFA;
-
-    macro_rules! oset {
-        ($($x:expr),*) => {{
-            #[allow(unused_mut)]
-            let mut temp_set = std::collections::BTreeSet::new();
-            $(temp_set.insert($x);)*
-            temp_set
-        }}
-    }
 
     struct Expected<S, T> {
         initial: S,
@@ -179,7 +176,7 @@ mod tests {
         finals: Set<S>,
     }
 
-    fn assert_eq<S: Clone + Debug + Eq + Hash, T: Clone + Debug + Eq + Hash>(expected: Expected<S, T>, actual: DFA<S, T>) {
+    fn assert_eq<S: Clone + Debug + Ord, T: Clone + Debug + Ord>(expected: Expected<S, T>, actual: DFA<S, T>) {
         assert_eq!(expected.initial, actual.get_state(actual.get_initial()).clone());
         assert_eq!(expected.transitions, actual.transitions().map(|transition_index| actual.get_transition(transition_index)).map(|(source, transition, target)| (actual.get_state(source).clone(), transition.clone(), actual.get_state(target).clone())).collect());
         assert_eq!(expected.finals, actual.finals().map(|final_index| actual.get_state(final_index).clone()).collect());
@@ -188,12 +185,12 @@ mod tests {
     #[test]
     fn test_1() {
         let expected = Expected::<_, char> {
-            initial: oset![0],
+            initial: set![0],
             transitions: set![],
-            finals: set![oset![1]]
+            finals: set![set![1]]
         };
-        let mut actual = DFA::new(oset![0]);
-        let s1 = actual.add_state(oset![1]);
+        let mut actual = DFA::new(set![0]);
+        let s1 = actual.add_state(set![1]);
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -201,15 +198,15 @@ mod tests {
     #[test]
     fn test_2() {
         let expected = Expected {
-            initial: oset![0],
+            initial: set![0],
             transitions: set![
-                (oset![0], 'a', oset![1])
+                (set![0], 'a', set![1])
             ],
-            finals: set![oset![1]]
+            finals: set![set![1]]
         };
-        let mut actual = DFA::new(oset![0]);
+        let mut actual = DFA::new(set![0]);
         let s0 = actual.get_initial();
-        let s1 = actual.add_state(oset![1]);
+        let s1 = actual.add_state(set![1]);
         actual.add_transition(s0, 'a', s1);
         actual.set_final(s1);
         assert_eq(expected, actual);
@@ -218,15 +215,15 @@ mod tests {
     #[test]
     fn test_3() {
         let expected = Expected {
-            initial: oset![0, 1, 2, 3, 4],
+            initial: set![0, 1, 2, 3, 4],
             transitions: set![
-                (oset![0, 1, 2, 3, 4], 'a', oset![1, 5])
+                (set![0, 1, 2, 3, 4], 'a', set![1, 5])
             ],
-            finals: set![oset![0, 1, 2, 3, 4], oset![1, 5]]
+            finals: set![set![0, 1, 2, 3, 4], set![1, 5]]
         };
-        let mut actual = DFA::new(oset![0, 1, 2, 3, 4]);
+        let mut actual = DFA::new(set![0, 1, 2, 3, 4]);
         let s01234 = actual.get_initial();
-        let s15 = actual.add_state(oset![1, 5]);
+        let s15 = actual.add_state(set![1, 5]);
         actual.add_transition(s01234, 'a', s15);
         actual.set_final(s01234);
         actual.set_final(s15);
@@ -236,15 +233,15 @@ mod tests {
     #[test]
     fn test_4() {
         let expected = Expected {
-            initial: oset![0, 2],
+            initial: set![0, 2],
             transitions: set![
-                (oset![0, 2], 'a', oset![1, 3, 4, 5])
+                (set![0, 2], 'a', set![1, 3, 4, 5])
             ],
-            finals: set![oset![1, 3, 4, 5]]
+            finals: set![set![1, 3, 4, 5]]
         };
-        let mut actual = DFA::new(oset![0, 2]);
+        let mut actual = DFA::new(set![0, 2]);
         let s02 = actual.get_initial();
-        let s1345 = actual.add_state(oset![1, 3, 4, 5]);
+        let s1345 = actual.add_state(set![1, 3, 4, 5]);
         actual.add_transition(s02, 'a', s1345);
         actual.set_final(s1345);
         assert_eq(expected, actual);
@@ -253,16 +250,16 @@ mod tests {
     #[test]
     fn test_5() {
         let expected = Expected {
-            initial: oset![0, 1, 2],
+            initial: set![0, 1, 2],
             transitions: set![
-                (oset![0, 1, 2], 'a', oset![1, 2, 3]),
-                (oset![1, 2, 3], 'a', oset![1, 2, 3])
+                (set![0, 1, 2], 'a', set![1, 2, 3]),
+                (set![1, 2, 3], 'a', set![1, 2, 3])
             ],
-            finals: set![oset![0, 1, 2], oset![1, 2, 3]]
+            finals: set![set![0, 1, 2], set![1, 2, 3]]
         };
-        let mut actual = DFA::new(oset![0, 1, 2]);
+        let mut actual = DFA::new(set![0, 1, 2]);
         let s012 = actual.get_initial();
-        let s123 = actual.add_state(oset![1, 2, 3]);
+        let s123 = actual.add_state(set![1, 2, 3]);
         actual.add_transition(s012, 'a', s123);
         actual.add_transition(s123, 'a', s123);
         actual.set_final(s012);
@@ -273,16 +270,16 @@ mod tests {
     #[test]
     fn test_6() {
         let expected = Expected {
-            initial: oset![0, 2, 4],
+            initial: set![0, 2, 4],
             transitions: set![
-                (oset![0, 2, 4], 'a', oset![1, 5])
+                (set![0, 2, 4], 'a', set![1, 5])
             ],
-            finals: set![oset![1, 3], oset![1, 5]]
+            finals: set![set![1, 3], set![1, 5]]
         };
-        let mut actual = DFA::new(oset![0, 2, 4]);
+        let mut actual = DFA::new(set![0, 2, 4]);
         let s024 = actual.get_initial();
-        let s13 = actual.add_state(oset![1, 3]);
-        let s15 = actual.add_state(oset![1, 5]);
+        let s13 = actual.add_state(set![1, 3]);
+        let s15 = actual.add_state(set![1, 5]);
         actual.add_transition(s024, 'a', s13);
         actual.add_transition(s024, 'a', s15); // this will overwrite
         actual.set_final(s13);
