@@ -33,7 +33,7 @@ where
         }
     }
 
-    pub fn add_state(&mut self, state: S) -> StateIndex {
+    pub fn insert_state(&mut self, state: S) -> StateIndex {
         if let Some(&state_index) = self.state_to_index.get(&state) {
             state_index
         } else {
@@ -61,7 +61,7 @@ where
         Box::new(self.index_to_state.keys().map(|&state_index| state_index))
     }
 
-    pub fn add_transition(&mut self, source: StateIndex, transition: T, target: StateIndex) -> TransitionIndex {
+    pub fn insert_transition(&mut self, source: StateIndex, transition: T, target: StateIndex) -> TransitionIndex {
         if self.index_to_state.get(&source).is_none() {
             panic!("source state index out of bounds");
         }
@@ -174,13 +174,13 @@ where
         let mut nfa = NFA::new(initial.clone());
         for state_index in dfa.states() {
             let state = dfa.state(state_index);
-            nfa.add_state(state.clone());
+            nfa.insert_state(state.clone());
         }
         for transition_index in dfa.transitions() {
             let (source_index, transition, target_index) = dfa.transition(transition_index);
             let source_index = nfa.translate_from(&dfa, source_index);
             let target_index = nfa.translate_from(&dfa, target_index);
-            nfa.add_transition(source_index, transition.clone(), target_index);
+            nfa.insert_transition(source_index, transition.clone(), target_index);
         }
         for final_index in dfa.finals() {
             let final_index = nfa.translate_from(&dfa, final_index);
@@ -217,7 +217,7 @@ mod tests {
             finals: set![set![1]]
         };
         let mut actual = NFA::new(set![0]);
-        let s1 = actual.add_state(set![1]);
+        let s1 = actual.insert_state(set![1]);
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -233,8 +233,8 @@ mod tests {
         };
         let mut actual = NFA::new(set![0]);
         let s0 = actual.initial();
-        let s1 = actual.add_state(set![1]);
-        actual.add_transition(s0, 'a', s1);
+        let s1 = actual.insert_state(set![1]);
+        actual.insert_transition(s0, 'a', s1);
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -250,8 +250,8 @@ mod tests {
         };
         let mut actual = NFA::new(set![0, 1, 2, 3, 4]);
         let s01234 = actual.initial();
-        let s15 = actual.add_state(set![1, 5]);
-        actual.add_transition(s01234, 'a', s15);
+        let s15 = actual.insert_state(set![1, 5]);
+        actual.insert_transition(s01234, 'a', s15);
         actual.set_final(s01234);
         actual.set_final(s15);
         assert_eq(expected, actual);
@@ -268,8 +268,8 @@ mod tests {
         };
         let mut actual = NFA::new(set![0, 2]);
         let s02 = actual.initial();
-        let s1345 = actual.add_state(set![1, 3, 4, 5]);
-        actual.add_transition(s02, 'a', s1345);
+        let s1345 = actual.insert_state(set![1, 3, 4, 5]);
+        actual.insert_transition(s02, 'a', s1345);
         actual.set_final(s1345);
         assert_eq(expected, actual);
     }
@@ -286,9 +286,9 @@ mod tests {
         };
         let mut actual = NFA::new(set![0, 1, 2]);
         let s012 = actual.initial();
-        let s123 = actual.add_state(set![1, 2, 3]);
-        actual.add_transition(s012, 'a', s123);
-        actual.add_transition(s123, 'a', s123);
+        let s123 = actual.insert_state(set![1, 2, 3]);
+        actual.insert_transition(s012, 'a', s123);
+        actual.insert_transition(s123, 'a', s123);
         actual.set_final(s012);
         actual.set_final(s123);
         assert_eq(expected, actual);
@@ -306,10 +306,10 @@ mod tests {
         };
         let mut actual = NFA::new(set![0, 2, 4]);
         let s024 = actual.initial();
-        let s13 = actual.add_state(set![1, 3]);
-        let s15 = actual.add_state(set![1, 5]);
-        actual.add_transition(s024, 'a', s13);
-        actual.add_transition(s024, 'a', s15);
+        let s13 = actual.insert_state(set![1, 3]);
+        let s15 = actual.insert_state(set![1, 5]);
+        actual.insert_transition(s024, 'a', s13);
+        actual.insert_transition(s024, 'a', s15);
         actual.set_final(s13);
         actual.set_final(s15);
         assert_eq(expected, actual);

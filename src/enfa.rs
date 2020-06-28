@@ -1,3 +1,5 @@
+use std::collections::BTreeSet as Set;
+
 use crate::{StateIndex, NFA, DFA, TranslateFrom};
 
 pub type EpsilonNondeterministicFiniteAutomaton<S, T> = NFA<S, Option<T>>;
@@ -29,8 +31,19 @@ where
     S: Ord,
     T: Ord,
 {
-    pub fn get_closure<'a>(&'a self, _state_index: StateIndex) -> Box<dyn Iterator<Item = StateIndex> + 'a> {
-        panic!("Not implemented")
+    pub fn get_closure<'a>(&'a self, state_index: StateIndex) -> Set<StateIndex> {
+        let mut stack = vec![state_index];
+        let mut closure = Set::new();
+        while let Some(source_state_index) = stack.pop() {
+            closure.insert(source_state_index);
+            for transition_index in self.transitions_from(source_state_index) {
+                let (_, transition, target_index) = self.transition(transition_index);
+                if transition.is_none() && !closure.contains(&target_index) {
+                    stack.push(target_index);
+                }
+            }
+        }
+        closure
     }
 }
 
@@ -45,13 +58,13 @@ where
         let mut enfa = ENFA::new(initial.clone());
         for state_index in nfa.states() {
             let state = nfa.state(state_index);
-            enfa.add_state(state.clone());
+            enfa.insert_state(state.clone());
         }
         for transition_index in nfa.transitions() {
             let (source_index, transition, target_index) = nfa.transition(transition_index);
             let source_index = enfa.translate_from(&nfa, source_index);
             let target_index = enfa.translate_from(&nfa, target_index);
-            enfa.add_transition(source_index, Some(transition.clone()), target_index);
+            enfa.insert_transition(source_index, Some(transition.clone()), target_index);
         }
         for final_index in nfa.finals() {
             let final_index = enfa.translate_from(&nfa, final_index);
@@ -72,13 +85,13 @@ where
         let mut enfa = ENFA::new(initial.clone());
         for state_index in dfa.states() {
             let state = dfa.state(state_index);
-            enfa.add_state(state.clone());
+            enfa.insert_state(state.clone());
         }
         for transition_index in dfa.transitions() {
             let (source_index, transition, target_index) = dfa.transition(transition_index);
             let source_index = enfa.translate_from(&dfa, source_index);
             let target_index = enfa.translate_from(&dfa, target_index);
-            enfa.add_transition(source_index, Some(transition.clone()), target_index);
+            enfa.insert_transition(source_index, Some(transition.clone()), target_index);
         }
         for final_index in dfa.finals() {
             let final_index = enfa.translate_from(&dfa, final_index);
@@ -118,8 +131,8 @@ mod tests {
         };
         let mut actual = ENFA::new(0);
         let s0 = actual.initial();
-        let s1 = actual.add_state(1);
-        actual.add_transition(s0, None, s1);
+        let s1 = actual.insert_state(1);
+        actual.insert_transition(s0, None, s1);
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -135,8 +148,8 @@ mod tests {
         };
         let mut actual = ENFA::new(0);
         let s0 = actual.initial();
-        let s1 = actual.add_state(1);
-        actual.add_transition(s0, Some('a'), s1);
+        let s1 = actual.insert_state(1);
+        actual.insert_transition(s0, Some('a'), s1);
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -157,17 +170,17 @@ mod tests {
         };
         let mut actual = ENFA::new(0);
         let s0 = actual.initial();
-        let s1 = actual.add_state(1);
-        let s2 = actual.add_state(2);
-        let s3 = actual.add_state(3);
-        let s4 = actual.add_state(4);
-        let s5 = actual.add_state(5);
-        actual.add_transition(s0, None,      s2);
-        actual.add_transition(s0, None,      s4);
-        actual.add_transition(s2, None,      s3);
-        actual.add_transition(s4, Some('a'), s5);
-        actual.add_transition(s3, None,      s1);
-        actual.add_transition(s5, None,      s1);
+        let s1 = actual.insert_state(1);
+        let s2 = actual.insert_state(2);
+        let s3 = actual.insert_state(3);
+        let s4 = actual.insert_state(4);
+        let s5 = actual.insert_state(5);
+        actual.insert_transition(s0, None,      s2);
+        actual.insert_transition(s0, None,      s4);
+        actual.insert_transition(s2, None,      s3);
+        actual.insert_transition(s4, Some('a'), s5);
+        actual.insert_transition(s3, None,      s1);
+        actual.insert_transition(s5, None,      s1);
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -187,16 +200,16 @@ mod tests {
         };
         let mut actual = ENFA::new(0);
         let s0 = actual.initial();
-        let s1 = actual.add_state(1);
-        let s2 = actual.add_state(2);
-        let s3 = actual.add_state(3);
-        let s4 = actual.add_state(4);
-        let s5 = actual.add_state(5);
-        actual.add_transition(s0, None,      s2);
-        actual.add_transition(s2, Some('a'), s3);
-        actual.add_transition(s3, None,      s4);
-        actual.add_transition(s4, None,      s5);
-        actual.add_transition(s5, None,      s1);
+        let s1 = actual.insert_state(1);
+        let s2 = actual.insert_state(2);
+        let s3 = actual.insert_state(3);
+        let s4 = actual.insert_state(4);
+        let s5 = actual.insert_state(5);
+        actual.insert_transition(s0, None,      s2);
+        actual.insert_transition(s2, Some('a'), s3);
+        actual.insert_transition(s3, None,      s4);
+        actual.insert_transition(s4, None,      s5);
+        actual.insert_transition(s5, None,      s1);
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -216,14 +229,14 @@ mod tests {
         };
         let mut actual = ENFA::new(0);
         let s0 = actual.initial();
-        let s1 = actual.add_state(1);
-        let s2 = actual.add_state(2);
-        let s3 = actual.add_state(3);
-        actual.add_transition(s0, None,      s1);
-        actual.add_transition(s0, None,      s2);
-        actual.add_transition(s2, Some('a'), s3);
-        actual.add_transition(s3, None,      s2);
-        actual.add_transition(s3, None,      s1);
+        let s1 = actual.insert_state(1);
+        let s2 = actual.insert_state(2);
+        let s3 = actual.insert_state(3);
+        actual.insert_transition(s0, None,      s1);
+        actual.insert_transition(s0, None,      s2);
+        actual.insert_transition(s2, Some('a'), s3);
+        actual.insert_transition(s3, None,      s2);
+        actual.insert_transition(s3, None,      s1);
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
