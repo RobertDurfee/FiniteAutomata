@@ -49,12 +49,12 @@ where
         self.state_to_index.get(state).map(|&state_index| state_index)
     }
 
-    pub fn get_state(&self, state_index: StateIndex) -> &S {
+    pub fn state(&self, state_index: StateIndex) -> &S {
         self.index_to_state.get(&state_index).expect("state index out of bounds")
     }
 
-    pub fn get_neighbors_of<'a>(&'a self, state_index: StateIndex) -> Box<dyn Iterator<Item = StateIndex> + 'a> {
-        Box::new(self.get_transitions_from(state_index).map(move |transition_index| self.index_to_transition.get(&transition_index).unwrap().2))
+    pub fn neighbors_of<'a>(&'a self, state_index: StateIndex) -> Box<dyn Iterator<Item = StateIndex> + 'a> {
+        Box::new(self.transitions_from(state_index).map(move |transition_index| self.index_to_transition.get(&transition_index).unwrap().2))
     }
 
     pub fn states<'a>(&'a self) -> Box<dyn Iterator<Item = StateIndex> + 'a> {
@@ -102,12 +102,12 @@ where
         }
     }
 
-    pub fn get_transition(&self, transition_index: TransitionIndex) -> (StateIndex, &T, StateIndex) {
+    pub fn transition(&self, transition_index: TransitionIndex) -> (StateIndex, &T, StateIndex) {
         let (source, transition, target) = self.index_to_transition.get(&transition_index).expect("transition index out of bounds");
         (*source, &*transition, *target)
     }
 
-    pub fn get_transitions_from<'a>(&'a self, state_index: StateIndex) -> Box<dyn Iterator<Item = TransitionIndex> + 'a> {
+    pub fn transitions_from<'a>(&'a self, state_index: StateIndex) -> Box<dyn Iterator<Item = TransitionIndex> + 'a> {
         if self.index_to_state.get(&state_index).is_none() {
             panic!("state index out of bounds");
         }
@@ -122,17 +122,17 @@ where
         Box::new(self.index_to_transition.keys().map(|&transition_index| transition_index))
     }
 
-    pub fn get_initial(&self) -> StateIndex {
+    pub fn initial(&self) -> StateIndex {
         self.initial
     }
 
     pub fn set_final(&mut self, state_index: StateIndex) {
-        self.get_state(state_index); // ensure state_index not out of bounds
+        self.state(state_index); // ensure state_index not out of bounds
         self.finals.insert(state_index);
     }
 
     pub fn is_final(&mut self, state_index: StateIndex) -> bool {
-        self.get_state(state_index); // ensure state_index not out of bounds
+        self.state(state_index); // ensure state_index not out of bounds
         self.finals.contains(&state_index)
     }
 
@@ -177,9 +177,9 @@ mod tests {
     }
 
     fn assert_eq<S: Clone + Debug + Ord, T: Clone + Debug + Ord>(expected: Expected<S, T>, actual: DFA<S, T>) {
-        assert_eq!(expected.initial, actual.get_state(actual.get_initial()).clone());
-        assert_eq!(expected.transitions, actual.transitions().map(|transition_index| actual.get_transition(transition_index)).map(|(source, transition, target)| (actual.get_state(source).clone(), transition.clone(), actual.get_state(target).clone())).collect());
-        assert_eq!(expected.finals, actual.finals().map(|final_index| actual.get_state(final_index).clone()).collect());
+        assert_eq!(expected.initial, actual.state(actual.initial()).clone());
+        assert_eq!(expected.transitions, actual.transitions().map(|transition_index| actual.transition(transition_index)).map(|(source, transition, target)| (actual.state(source).clone(), transition.clone(), actual.state(target).clone())).collect());
+        assert_eq!(expected.finals, actual.finals().map(|final_index| actual.state(final_index).clone()).collect());
     }
 
     #[test]
@@ -205,7 +205,7 @@ mod tests {
             finals: set![set![1]]
         };
         let mut actual = DFA::new(set![0]);
-        let s0 = actual.get_initial();
+        let s0 = actual.initial();
         let s1 = actual.add_state(set![1]);
         actual.add_transition(s0, 'a', s1);
         actual.set_final(s1);
@@ -222,7 +222,7 @@ mod tests {
             finals: set![set![0, 1, 2, 3, 4], set![1, 5]]
         };
         let mut actual = DFA::new(set![0, 1, 2, 3, 4]);
-        let s01234 = actual.get_initial();
+        let s01234 = actual.initial();
         let s15 = actual.add_state(set![1, 5]);
         actual.add_transition(s01234, 'a', s15);
         actual.set_final(s01234);
@@ -240,7 +240,7 @@ mod tests {
             finals: set![set![1, 3, 4, 5]]
         };
         let mut actual = DFA::new(set![0, 2]);
-        let s02 = actual.get_initial();
+        let s02 = actual.initial();
         let s1345 = actual.add_state(set![1, 3, 4, 5]);
         actual.add_transition(s02, 'a', s1345);
         actual.set_final(s1345);
@@ -258,7 +258,7 @@ mod tests {
             finals: set![set![0, 1, 2], set![1, 2, 3]]
         };
         let mut actual = DFA::new(set![0, 1, 2]);
-        let s012 = actual.get_initial();
+        let s012 = actual.initial();
         let s123 = actual.add_state(set![1, 2, 3]);
         actual.add_transition(s012, 'a', s123);
         actual.add_transition(s123, 'a', s123);
@@ -277,7 +277,7 @@ mod tests {
             finals: set![set![1, 3], set![1, 5]]
         };
         let mut actual = DFA::new(set![0, 2, 4]);
-        let s024 = actual.get_initial();
+        let s024 = actual.initial();
         let s13 = actual.add_state(set![1, 3]);
         let s15 = actual.add_state(set![1, 5]);
         actual.add_transition(s024, 'a', s13);

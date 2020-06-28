@@ -1,8 +1,28 @@
-use crate::{StateIndex, NFA, DFA};
+use crate::{StateIndex, NFA, DFA, TranslateFrom};
 
 pub type EpsilonNondeterministicFiniteAutomaton<S, T> = NFA<S, Option<T>>;
 
 pub type ENFA<S, T> = EpsilonNondeterministicFiniteAutomaton<S, T>;
+
+impl<S, T> TranslateFrom<NFA<S, T>> for ENFA<S, T>
+where
+    S: Ord,
+    T: Ord,
+{
+    fn translate_from(&self, from: &NFA<S, T>, state_index: StateIndex) -> StateIndex {
+        self.contains_state(from.state(state_index)).expect("state does not exist")
+    }
+}
+
+impl<S, T> TranslateFrom<DFA<S, T>> for ENFA<S, T>
+where
+    S: Ord,
+    T: Ord,
+{
+    fn translate_from(&self, from: &DFA<S, T>, state_index: StateIndex) -> StateIndex {
+        self.contains_state(from.state(state_index)).expect("state does not exist")
+    }
+}
 
 impl<S, T> ENFA<S, T> 
 where
@@ -16,21 +36,55 @@ where
 
 impl<S, T> From<NFA<S, T>> for ENFA<S, T>
 where
-    S: Ord,
-    T: Ord,
+    S: Clone + Ord,
+    T: Clone + Ord,
 {
-    fn from(_nfa: NFA<S, T>) -> ENFA<S, T> {
-        panic!("Not implemented")
+    fn from(nfa: NFA<S, T>) -> ENFA<S, T> {
+        let initial_index = nfa.initial();
+        let initial = nfa.state(initial_index);
+        let mut enfa = ENFA::new(initial.clone());
+        for state_index in nfa.states() {
+            let state = nfa.state(state_index);
+            enfa.add_state(state.clone());
+        }
+        for transition_index in nfa.transitions() {
+            let (source_index, transition, target_index) = nfa.transition(transition_index);
+            let source_index = enfa.translate_from(&nfa, source_index);
+            let target_index = enfa.translate_from(&nfa, target_index);
+            enfa.add_transition(source_index, Some(transition.clone()), target_index);
+        }
+        for final_index in nfa.finals() {
+            let final_index = enfa.translate_from(&nfa, final_index);
+            enfa.set_final(final_index);
+        }
+        enfa
     }
 }
 
 impl<S, T> From<DFA<S, T>> for ENFA<S, T>
 where
-    S: Ord,
-    T: Ord,
+    S: Clone + Ord,
+    T: Clone + Ord,
 {
-    fn from(_dfa: DFA<S, T>) -> ENFA<S, T> {
-        panic!("Not implemented")
+    fn from(dfa: DFA<S, T>) -> ENFA<S, T> {
+        let initial_index = dfa.initial();
+        let initial = dfa.state(initial_index);
+        let mut enfa = ENFA::new(initial.clone());
+        for state_index in dfa.states() {
+            let state = dfa.state(state_index);
+            enfa.add_state(state.clone());
+        }
+        for transition_index in dfa.transitions() {
+            let (source_index, transition, target_index) = dfa.transition(transition_index);
+            let source_index = enfa.translate_from(&dfa, source_index);
+            let target_index = enfa.translate_from(&dfa, target_index);
+            enfa.add_transition(source_index, Some(transition.clone()), target_index);
+        }
+        for final_index in dfa.finals() {
+            let final_index = enfa.translate_from(&dfa, final_index);
+            enfa.set_final(final_index);
+        }
+        enfa
     }
 }
 
@@ -48,9 +102,9 @@ mod tests {
     }
 
     fn assert_eq<S: Clone + Debug + Ord, T: Clone + Debug + Ord>(expected: Expected<S, T>, actual: ENFA<S, T>) {
-        assert_eq!(expected.initial, actual.get_state(actual.get_initial()).clone());
-        assert_eq!(expected.transitions, actual.transitions().map(|transition_index| actual.get_transition(transition_index)).map(|(source, transition, target)| (actual.get_state(source).clone(), transition.clone(), actual.get_state(target).clone())).collect());
-        assert_eq!(expected.finals, actual.finals().map(|final_index| actual.get_state(final_index).clone()).collect());
+        assert_eq!(expected.initial, actual.state(actual.initial()).clone());
+        assert_eq!(expected.transitions, actual.transitions().map(|transition_index| actual.transition(transition_index)).map(|(source, transition, target)| (actual.state(source).clone(), transition.clone(), actual.state(target).clone())).collect());
+        assert_eq!(expected.finals, actual.finals().map(|final_index| actual.state(final_index).clone()).collect());
     }
 
     #[test]
@@ -63,7 +117,7 @@ mod tests {
             finals: set![1]
         };
         let mut actual = ENFA::new(0);
-        let s0 = actual.get_initial();
+        let s0 = actual.initial();
         let s1 = actual.add_state(1);
         actual.add_transition(s0, None, s1);
         actual.set_final(s1);
@@ -80,7 +134,7 @@ mod tests {
             finals: set![1]
         };
         let mut actual = ENFA::new(0);
-        let s0 = actual.get_initial();
+        let s0 = actual.initial();
         let s1 = actual.add_state(1);
         actual.add_transition(s0, Some('a'), s1);
         actual.set_final(s1);
@@ -102,7 +156,7 @@ mod tests {
             finals: set![1]
         };
         let mut actual = ENFA::new(0);
-        let s0 = actual.get_initial();
+        let s0 = actual.initial();
         let s1 = actual.add_state(1);
         let s2 = actual.add_state(2);
         let s3 = actual.add_state(3);
@@ -132,7 +186,7 @@ mod tests {
             finals: set![1]
         };
         let mut actual = ENFA::new(0);
-        let s0 = actual.get_initial();
+        let s0 = actual.initial();
         let s1 = actual.add_state(1);
         let s2 = actual.add_state(2);
         let s3 = actual.add_state(3);
@@ -161,7 +215,7 @@ mod tests {
             finals: set![1]
         };
         let mut actual = ENFA::new(0);
-        let s0 = actual.get_initial();
+        let s0 = actual.initial();
         let s1 = actual.add_state(1);
         let s2 = actual.add_state(2);
         let s3 = actual.add_state(3);
