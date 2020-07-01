@@ -3,7 +3,7 @@ use std::collections::BTreeSet as Set;
 use std::rc::Rc;
 use std::iter;
 
-use crate::{StateIndex, TransitionIndex, ENFA, NFA, At, Slice, Contains, Insert};
+use crate::{StateIndex, TransitionIndex, ENFA, NFA, At, Slice, Contains, ContainsFrom, ContainsClosureFrom, Insert};
 
 pub struct DeterministicFiniteAutomaton<S, T> {
     state_to_index: Map<Rc<S>, StateIndex>,
@@ -201,23 +201,128 @@ where
     }
 }
 
-impl<S, T> From<ENFA<S, T>> for DFA<Set<S>, T> 
+impl<S, T> ContainsFrom<ENFA<S, T>, StateIndex> for DFA<S, T> 
 where
     S: Ord,
     T: Ord,
 {
-    fn from(_enfa: ENFA<S, T>) -> DFA<Set<S>, T> {
-        panic!("Not implemented")
+    fn contains_from(&self, from: &ENFA<S, T>, state_index: StateIndex) -> Option<StateIndex> {
+        self.contains(from.at(state_index))
+    }
+}
+
+impl<S, T> ContainsFrom<NFA<S, T>, StateIndex> for DFA<S, T> 
+where
+    S: Ord,
+    T: Ord,
+{
+    fn contains_from(&self, from: &NFA<S, T>, state_index: StateIndex) -> Option<StateIndex> {
+        self.contains(from.at(state_index))
+    }
+}
+
+
+impl<'a, S, T> ContainsClosureFrom<'a, ENFA<S, T>, StateIndex> for DFA<Set<S>, T>
+where
+    S: Clone + Ord + 'a,
+    T: Clone + Ord + 'a,
+{
+    fn contains_closure_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a ENFA<S, T>, state_indices: I) -> Option<StateIndex> {
+        self.contains(&from.slice(state_indices).cloned().collect())
+    }
+}
+
+impl<'a, S, T> ContainsClosureFrom<'a, NFA<S, T>, StateIndex> for DFA<Set<S>, T>
+where
+    S: Clone + Ord + 'a,
+    T: Clone + Ord + 'a,
+{
+    fn contains_closure_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a NFA<S, T>, state_indices: I) -> Option<StateIndex> {
+        self.contains(&from.slice(state_indices).cloned().collect())
+    }
+}
+
+impl<S, T> From<ENFA<S, T>> for DFA<Set<S>, T> 
+where
+    S: Clone + Ord,
+    T: Clone + Ord,
+{
+    fn from(enfa: ENFA<S, T>) -> DFA<Set<S>, T> {
+        let initial_closure_indices: Set<StateIndex> = enfa.closure_indices(enfa.initial_index()).collect();
+        let initial_closure = enfa.slice(&initial_closure_indices).cloned().collect();
+        let mut stack = vec![initial_closure_indices];
+        let mut dfa = DFA::new(initial_closure);
+        while let Some(source_closure_indices) = stack.pop() {
+            let source_index = dfa.contains_closure_from(&enfa, &source_closure_indices).expect("closure does not exist");
+            let mut target_closures_indices: Map<T, Set<StateIndex>> = Map::new();
+            for &source_closure_index in &source_closure_indices {
+                if enfa.is_final(source_closure_index) {
+                    dfa.set_final(source_index);
+                }
+                for transition_index in enfa.transition_indices_from(source_closure_index) {
+                    let (_, transition, target_index) = enfa.at(transition_index);
+                    if let Some(transition) = transition {
+                        if let Some(target_closure_indices) = target_closures_indices.get_mut(&transition) {
+                            target_closure_indices.extend(enfa.closure_indices(target_index));
+                        } else {
+                            target_closures_indices.insert(transition.clone(), enfa.closure_indices(target_index).collect());
+                        }
+                    }
+                }
+            }
+            for (transition, target_closure_indices) in target_closures_indices {
+                if let Some(target_index) = dfa.contains_closure_from(&enfa, &target_closure_indices) {
+                    dfa.insert((source_index, transition, target_index));
+                } else {
+                    let target_closure = enfa.slice(&target_closure_indices).cloned().collect();
+                    stack.push(target_closure_indices);
+                    let target_index = dfa.insert(target_closure);
+                    dfa.insert((source_index, transition, target_index));
+                }
+            }
+        }
+        dfa
     }
 }
 
 impl<S, T> From<NFA<S, T>> for DFA<Set<S>, T>
 where
-    S: Ord,
-    T: Ord,
+    S: Clone + Ord,
+    T: Clone + Ord,
 {
-    fn from(_nfa: NFA<S, T>) -> DFA<Set<S>, T> {
-        panic!("Not implemented")
+    fn from(nfa: NFA<S, T>) -> DFA<Set<S>, T> {
+        let initial_closure_indices = set![nfa.initial_index()];
+        let initial_closure = nfa.slice(&initial_closure_indices).cloned().collect();
+        let mut stack = vec![initial_closure_indices];
+        let mut dfa = DFA::new(initial_closure);
+        while let Some(source_closure_indices) = stack.pop() {
+            let source_index = dfa.contains_closure_from(&nfa, &source_closure_indices).expect("closure does not exist");
+            let mut target_closures_indices: Map<T, Set<StateIndex>> = Map::new();
+            for &source_closure_index in &source_closure_indices {
+                if nfa.is_final(source_closure_index) {
+                    dfa.set_final(source_index);
+                }
+                for transition_index in nfa.transition_indices_from(source_closure_index) {
+                    let (_, transition, target_index) = nfa.at(transition_index);
+                    if let Some(target_closure_indices) = target_closures_indices.get_mut(&transition) {
+                        target_closure_indices.insert(target_index);
+                    } else {
+                        target_closures_indices.insert(transition.clone(), set![target_index]);
+                    }
+                }
+            }
+            for (transition, target_closure_indices) in target_closures_indices {
+                if let Some(target_index) = dfa.contains_closure_from(&nfa, &target_closure_indices) {
+                    dfa.insert((source_index, transition, target_index));
+                } else {
+                    let target_closure = nfa.slice(&target_closure_indices).cloned().collect();
+                    stack.push(target_closure_indices);
+                    let target_index = dfa.insert(target_closure);
+                    dfa.insert((source_index, transition, target_index));
+                }
+            }
+        }
+        dfa
     }
 }
 
@@ -226,6 +331,8 @@ mod tests {
     use std::collections::BTreeSet as Set;
     use std::fmt::Debug;
 
+    use crate::enfa::ENFA;
+    use crate::nfa::NFA;
     use crate::dfa::DFA;
     use crate::{At, Slice, Insert};
 
@@ -244,13 +351,13 @@ mod tests {
     #[test]
     fn test_1() {
         let expected = Expected::<_, char> {
-            initial: set![0],
+            initial: set![0, 1],
             transitions: set![],
-            finals: set![set![1]]
+            finals: set![set![0, 1]]
         };
-        let mut actual = DFA::new(set![0]);
-        let s1 = actual.insert(set![1]);
-        actual.set_final(s1);
+        let mut actual = DFA::new(set![0, 1]);
+        let s0 = actual.initial_index();
+        actual.set_final(s0);
         assert_eq(expected, actual);
     }
 
@@ -343,6 +450,257 @@ mod tests {
         actual.insert((s024, 'a', s15)); // this will overwrite
         actual.set_final(s13);
         actual.set_final(s15);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_7() {
+        let expected = Expected::<_, char> {
+            initial: set![0, 1],
+            transitions: set![],
+            finals: set![set![0, 1]]
+        };
+        let mut enfa = ENFA::new(0);
+        let s0 = enfa.initial_index();
+        let s1 = enfa.insert(1);
+        enfa.insert((s0, None, s1));
+        enfa.set_final(s1);
+        let actual = DFA::from(enfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_8() {
+        let expected = Expected {
+            initial: set![0],
+            transitions: set![
+                (set![0], 'a', set![1])
+            ],
+            finals: set![set![1]]
+        };
+        let mut enfa = ENFA::new(0);
+        let s0 = enfa.initial_index();
+        let s1 = enfa.insert(1);
+        enfa.insert((s0, Some('a'), s1));
+        enfa.set_final(s1);
+        let actual = DFA::from(enfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_9() {
+        let expected = Expected {
+            initial: set![0, 1, 2, 3, 4],
+            transitions: set![
+                (set![0, 1, 2, 3, 4], 'a', set![1, 5])
+            ],
+            finals: set![set![0, 1, 2, 3, 4], set![1, 5]]
+        };
+        let mut enfa = ENFA::new(0);
+        let s0 = enfa.initial_index();
+        let s1 = enfa.insert(1);
+        let s2 = enfa.insert(2);
+        let s3 = enfa.insert(3);
+        let s4 = enfa.insert(4);
+        let s5 = enfa.insert(5);
+        enfa.insert((s0, None,      s2));
+        enfa.insert((s0, None,      s4));
+        enfa.insert((s2, None,      s3));
+        enfa.insert((s4, Some('a'), s5));
+        enfa.insert((s3, None,      s1));
+        enfa.insert((s5, None,      s1));
+        enfa.set_final(s1);
+        let actual = DFA::from(enfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_10() {
+        let expected = Expected {
+            initial: set![0, 2],
+            transitions: set![
+                (set![0, 2], 'a', set![1, 3, 4, 5])
+            ],
+            finals: set![set![1, 3, 4, 5]]
+        };
+        let mut enfa = ENFA::new(0);
+        let s0 = enfa.initial_index();
+        let s1 = enfa.insert(1);
+        let s2 = enfa.insert(2);
+        let s3 = enfa.insert(3);
+        let s4 = enfa.insert(4);
+        let s5 = enfa.insert(5);
+        enfa.insert((s0, None,      s2));
+        enfa.insert((s2, Some('a'), s3));
+        enfa.insert((s3, None,      s4));
+        enfa.insert((s4, None,      s5));
+        enfa.insert((s5, None,      s1));
+        enfa.set_final(s1);
+        let actual = DFA::from(enfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_11() {
+        let expected = Expected {
+            initial: set![0, 1, 2],
+            transitions: set![
+                (set![0, 1, 2], 'a', set![1, 2, 3]),
+                (set![1, 2, 3], 'a', set![1, 2, 3])
+            ],
+            finals: set![set![0, 1, 2], set![1, 2, 3]]
+        };
+        let mut enfa = ENFA::new(0);
+        let s0 = enfa.initial_index();
+        let s1 = enfa.insert(1);
+        let s2 = enfa.insert(2);
+        let s3 = enfa.insert(3);
+        enfa.insert((s0, None,      s1));
+        enfa.insert((s0, None,      s2));
+        enfa.insert((s2, Some('a'), s3));
+        enfa.insert((s3, None,      s2));
+        enfa.insert((s3, None,      s1));
+        enfa.set_final(s1);
+        let actual = DFA::from(enfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_12() {
+        let expected = Expected::<_, char> {
+            initial: set![0],
+            transitions: set![],
+            finals: set![set![0]]
+        };
+        let mut nfa: NFA<_, char> = NFA::new(0);
+        let s0 = nfa.initial_index();
+        nfa.set_final(s0);
+        let actual = DFA::from(nfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_13() {
+        let expected = Expected {
+            initial: set![0],
+            transitions: set![
+                (set![0], 'a', set![1])
+            ],
+            finals: set![set![1]]
+        };
+        let mut nfa = NFA::new(0);
+        let s0 = nfa.initial_index();
+        let s1 = nfa.insert(1);
+        nfa.insert((s0, 'a', s1));
+        nfa.set_final(s1);
+        let actual = DFA::from(nfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_14() {
+        let expected = Expected {
+            initial: set![0],
+            transitions: set![
+                (set![0], 'a', set![1])
+            ],
+            finals: set![set![0], set![1]]
+        };
+        let mut nfa = NFA::new(0);
+        let s0 = nfa.initial_index();
+        let s1 = nfa.insert(1);
+        nfa.insert((s0, 'a', s1));
+        nfa.set_final(s0);
+        nfa.set_final(s1);
+        let actual = DFA::from(nfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_15() {
+        let expected = Expected {
+            initial: set![0],
+            transitions: set![
+                (set![0], 'a', set![1])
+            ],
+            finals: set![set![1]]
+        };
+        let mut nfa = NFA::new(0);
+        let s0 = nfa.initial_index();
+        let s1 = nfa.insert(1);
+        nfa.insert((s0, 'a', s1));
+        nfa.set_final(s1);
+        let actual = DFA::from(nfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_16() {
+        let expected = Expected {
+            initial: set![0],
+            transitions: set![
+                (set![0], 'a', set![1]),
+                (set![1], 'a', set![1])
+            ],
+            finals: set![set![0], set![1]]
+        };
+        let mut nfa = NFA::new(0);
+        let s0 = nfa.initial_index();
+        let s1= nfa.insert(1);
+        nfa.insert((s0, 'a', s1));
+        nfa.insert((s1, 'a', s1));
+        nfa.set_final(s0);
+        nfa.set_final(s1);
+        let actual = DFA::from(nfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_17() {
+        let expected = Expected {
+            initial: set![0, 1, 3, 4],
+            transitions: set![
+                (set![0, 1, 3, 4], 'a', set![2, 3, 4])
+            ],
+            finals: set![set![0, 1, 3, 4], set![2, 3, 4]]
+        };
+        let mut enfa = ENFA::new(0);
+        let s0 = enfa.initial_index();
+        let s1 = enfa.insert(1);
+        let s2 = enfa.insert(2);
+        let s3 = enfa.insert(3);
+        let s4 = enfa.insert(4);
+        enfa.insert((s0, None,      s1));
+        enfa.insert((s1, Some('a'), s2));
+        enfa.insert((s1, Some('a'), s3));
+        enfa.insert((s0, None,      s3));
+        enfa.insert((s2, None,      s4));
+        enfa.insert((s3, None,      s4));
+        enfa.set_final(s4);
+        let actual = DFA::from(enfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_18() {
+        let expected = Expected {
+            initial: set![0],
+            transitions: set![
+                (set![0], 'a', set![1, 2]),
+                (set![0], 'b', set![1])
+            ],
+            finals: set![set![1], set![1, 2]]
+        };
+        let mut nfa = NFA::new(0);
+        let s0 = nfa.initial_index();
+        let s1 = nfa.insert(1);
+        let s2 = nfa.insert(2);
+        nfa.insert((s0, 'a', s1));
+        nfa.insert((s0, 'a', s2));
+        nfa.insert((s0, 'b', s1));
+        nfa.set_final(s1);
+        nfa.set_final(s2);
+        let actual = DFA::from(nfa);
         assert_eq(expected, actual);
     }
 }
