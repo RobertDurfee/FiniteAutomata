@@ -3,8 +3,9 @@ use std::collections::BTreeSet as Set;
 use std::rc::Rc;
 use std::iter;
 
-use crate::{StateIndex, TransitionIndex, ENFA, NFA, At, Slice, Contains, ContainsFrom, ContainsClosureFrom, Insert};
+use crate::{StateIndex, TransitionIndex, ENFA, NFA, At, Slice, Contains, ContainsFrom, ContainsClosureFrom, Insert, Join};
 
+#[derive(Clone)]
 pub struct DeterministicFiniteAutomaton<S, T> {
     state_to_index: Map<Rc<S>, StateIndex>,
     index_to_state: Map<StateIndex, Rc<S>>,
@@ -201,6 +202,30 @@ where
     }
 }
 
+impl<'a, S, T> Slice<'a, &'a StateIndex> for DFA<S, T> 
+where
+    S: Ord + 'a,
+    T: Ord + 'a,
+{
+    type Output = &'a S;
+
+    fn slice<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, state_indices: I) -> Box<dyn Iterator<Item = &'a S> + 'a> {
+        Box::new(state_indices.into_iter().map(move |&state_index| self.at(state_index)))
+    }
+}
+
+impl<'a, S, T> Slice<'a, &'a TransitionIndex> for DFA<S, T> 
+where
+    S: Ord + 'a,
+    T: Ord + 'a,
+{
+    type Output = (StateIndex, &'a T, StateIndex);
+
+    fn slice<I: IntoIterator<Item = &'a TransitionIndex> + 'a>(&'a self, transition_indices: I) -> Box<dyn Iterator<Item = (StateIndex, &'a T, StateIndex)> + 'a> {
+        Box::new(transition_indices.into_iter().map(move |&transition_index| self.at(transition_index)))
+    }
+}
+
 impl<S, T> ContainsFrom<ENFA<S, T>, StateIndex> for DFA<S, T> 
 where
     S: Ord,
@@ -217,6 +242,16 @@ where
     T: Ord,
 {
     fn contains_from(&self, from: &NFA<S, T>, state_index: StateIndex) -> Option<StateIndex> {
+        self.contains(from.at(state_index))
+    }
+}
+
+impl<S, T> ContainsFrom<DFA<S, T>, StateIndex> for DFA<S, T> 
+where
+    S: Ord,
+    T: Ord,
+{
+    fn contains_from(&self, from: &DFA<S, T>, state_index: StateIndex) -> Option<StateIndex> {
         self.contains(from.at(state_index))
     }
 }
@@ -238,6 +273,16 @@ where
     T: Clone + Ord + 'a,
 {
     fn contains_closure_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a NFA<S, T>, state_indices: I) -> Option<StateIndex> {
+        self.contains(&from.slice(state_indices).cloned().collect()) // TODO: this should be possible without cloning
+    }
+}
+
+impl<'a, S, T> ContainsClosureFrom<'a, DFA<S, T>, StateIndex> for DFA<Set<S>, T>
+where
+    S: Clone + Ord + 'a,
+    T: Clone + Ord + 'a,
+{
+    fn contains_closure_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a DFA<S, T>, state_indices: I) -> Option<StateIndex> {
         self.contains(&from.slice(state_indices).cloned().collect()) // TODO: this should be possible without cloning
     }
 }
@@ -323,6 +368,104 @@ where
             }
         }
         dfa
+    }
+}
+
+impl<S, T> Join<ENFA<S, T>> for DFA<Set<S>, T> 
+where
+    S: Clone + Ord,
+    T: Clone + Ord,
+{
+    fn join(&mut self, enfa: ENFA<S, T>) {
+        let initial_closure_indices: Set<StateIndex> = enfa.closure_indices(enfa.initial_index()).collect();
+        let initial_closure: Set<S> = enfa.slice(&initial_closure_indices).cloned().collect();
+        let mut stack = vec![initial_closure_indices];
+        self.insert(initial_closure);
+        while let Some(source_closure_indices) = stack.pop() {
+            let source_index = self.contains_closure_from(&enfa, &source_closure_indices).expect("closure does not exist");
+            let mut target_closures_indices: Map<T, Set<StateIndex>> = Map::new();
+            for &source_closure_index in &source_closure_indices {
+                if enfa.is_final(source_closure_index) {
+                    self.set_final(source_index);
+                }
+                for transition_index in enfa.transition_indices_from(source_closure_index) {
+                    let (_, transition, target_index) = enfa.at(transition_index);
+                    if let Some(transition) = transition {
+                        if let Some(target_closure_indices) = target_closures_indices.get_mut(&transition) {
+                            target_closure_indices.extend(enfa.closure_indices(target_index));
+                        } else {
+                            target_closures_indices.insert(transition.clone(), enfa.closure_indices(target_index).collect());
+                        }
+                    }
+                }
+            }
+            for (transition, target_closure_indices) in target_closures_indices {
+                if let Some(target_index) = self.contains_closure_from(&enfa, &target_closure_indices) {
+                    self.insert((source_index, transition, target_index));
+                } else {
+                    let target_closure = enfa.slice(&target_closure_indices).cloned().collect();
+                    stack.push(target_closure_indices);
+                    let target_index = self.insert(target_closure);
+                    self.insert((source_index, transition, target_index));
+                }
+            }
+        }
+    }
+}
+
+impl<S, T> Join<NFA<S, T>> for DFA<Set<S>, T> 
+where
+    S: Clone + Ord,
+    T: Clone + Ord,
+{
+    fn join(&mut self, nfa: NFA<S, T>) {
+        let initial_closure_indices = set![nfa.initial_index()];
+        let initial_closure: Set<S> = nfa.slice(&initial_closure_indices).cloned().collect();
+        let mut stack = vec![initial_closure_indices];
+        self.insert(initial_closure);
+        while let Some(source_closure_indices) = stack.pop() {
+            let source_index = self.contains_closure_from(&nfa, &source_closure_indices).expect("closure does not exist");
+            let mut target_closures_indices: Map<T, Set<StateIndex>> = Map::new();
+            for &source_closure_index in &source_closure_indices {
+                for transition_index in nfa.transition_indices_from(source_closure_index) {
+                    let (_, transition, target_index) = nfa.at(transition_index);
+                    if let Some(target_closure_indices) = target_closures_indices.get_mut(&transition) {
+                        target_closure_indices.insert(target_index);
+                    } else {
+                        target_closures_indices.insert(transition.clone(), set![target_index]);
+                    }
+                }
+            }
+            for (transition, target_closure_indices) in target_closures_indices {
+                if let Some(target_index) = self.contains_closure_from(&nfa, &target_closure_indices) {
+                    self.insert((source_index, transition, target_index));
+                } else {
+                    let target_closure = nfa.slice(&target_closure_indices).cloned().collect();
+                    stack.push(target_closure_indices);
+                    let target_index = self.insert(target_closure);
+                    self.insert((source_index, transition, target_index));
+                }
+            }
+        }
+    }
+}
+
+impl<S, T> Join<DFA<S, T>> for DFA<S, T> 
+where
+    S: Clone + Ord,
+    T: Clone + Ord,
+{
+    fn join(&mut self, dfa: DFA<S, T>) {
+        for state_index in dfa.state_indices() {
+            let state = dfa.at(state_index);
+            self.insert(state.clone());
+        }
+        for transition_index in dfa.transition_indices() {
+            let (source_index, transition, target_index) = dfa.at(transition_index);
+            let source_index = self.contains_from(&dfa, source_index).expect("state does not exist");
+            let target_index = self.contains_from(&dfa, target_index).expect("state does not exist");
+            self.insert((source_index, transition.clone(), target_index));
+        }
     }
 }
 

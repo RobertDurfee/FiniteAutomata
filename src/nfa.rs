@@ -3,8 +3,9 @@ use std::collections::BTreeSet as Set;
 use std::rc::Rc;
 use std::iter;
 
-use crate::{StateIndex, TransitionIndex, ENFA, DFA, ContainsFrom, ContainsClosureFrom, At, Slice, Contains, Insert};
+use crate::{StateIndex, TransitionIndex, ENFA, DFA, ContainsFrom, ContainsClosureFrom, At, Slice, Contains, Insert, Join};
 
+#[derive(Clone)]
 pub struct NondeterministicFiniteAutomaton<S, T> {
     state_to_index: Map<Rc<S>, StateIndex>,
     index_to_state: Map<StateIndex, Rc<S>>,
@@ -225,6 +226,16 @@ where
     }
 }
 
+impl<S, T> ContainsFrom<NFA<S, T>, StateIndex> for NFA<S, T> 
+where
+    S: Ord,
+    T: Ord,
+{
+    fn contains_from(&self, from: &NFA<S, T>, state_index: StateIndex) -> Option<StateIndex> {
+        self.contains(from.at(state_index))
+    }
+}
+
 impl<S, T> ContainsFrom<DFA<S, T>, StateIndex> for NFA<S, T> 
 where
     S: Ord,
@@ -241,6 +252,26 @@ where
     T: Clone + Ord + 'a,
 {
     fn contains_closure_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a ENFA<S, T>, state_indices: I) -> Option<StateIndex> {
+        self.contains(&from.slice(state_indices).cloned().collect()) // TODO: this should be possible without cloning
+    }
+}
+
+impl<'a, S, T> ContainsClosureFrom<'a, NFA<S, T>, StateIndex> for NFA<Set<S>, T>
+where
+    S: Clone + Ord + 'a,
+    T: Clone + Ord + 'a,
+{
+    fn contains_closure_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a NFA<S, T>, state_indices: I) -> Option<StateIndex> {
+        self.contains(&from.slice(state_indices).cloned().collect()) // TODO: this should be possible without cloning
+    }
+}
+
+impl<'a, S, T> ContainsClosureFrom<'a, DFA<S, T>, StateIndex> for NFA<Set<S>, T>
+where
+    S: Clone + Ord + 'a,
+    T: Clone + Ord + 'a,
+{
+    fn contains_closure_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a DFA<S, T>, state_indices: I) -> Option<StateIndex> {
         self.contains(&from.slice(state_indices).cloned().collect()) // TODO: this should be possible without cloning
     }
 }
@@ -304,6 +335,76 @@ where
             nfa.set_final(final_index);
         }
         nfa
+    }
+}
+
+impl<S, T> Join<ENFA<S, T>> for NFA<Set<S>, T> 
+where
+    S: Clone + Ord,
+    T: Clone + Ord,
+{
+    fn join(&mut self, enfa: ENFA<S, T>) {
+        let initial_closure_indices: Set<StateIndex> = enfa.closure_indices(enfa.initial_index()).collect();
+        let initial_closure: Set<S> = enfa.slice(&initial_closure_indices).cloned().collect();
+        let mut stack = vec![initial_closure_indices];
+        self.insert(initial_closure);
+        while let Some(source_closure_indices) = stack.pop() {
+            let source_index = self.contains_closure_from(&enfa, &source_closure_indices).expect("closure does not exist");
+            for &source_closure_index in &source_closure_indices {
+                for transition_index in enfa.transition_indices_from(source_closure_index) {
+                    let (_, transition, target_index) = enfa.at(transition_index);
+                    if let Some(transition) = transition {
+                        let target_closure_indices = enfa.closure_indices(target_index).collect();
+                        if let Some(target_index) = self.contains_closure_from(&enfa, &target_closure_indices) {
+                            self.insert((source_index, transition.clone(), target_index));
+                        } else {
+                            let target_closure = enfa.slice(&target_closure_indices).cloned().collect();
+                            stack.push(target_closure_indices);
+                            let target_index = self.insert(target_closure);
+                            self.insert((source_index, transition.clone(), target_index));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<S, T> Join<NFA<S, T>> for NFA<S, T> 
+where
+    S: Clone + Ord,
+    T: Clone + Ord,
+{
+    fn join(&mut self, nfa: NFA<S, T>) {
+        for state_index in nfa.state_indices() {
+            let state = nfa.at(state_index);
+            self.insert(state.clone());
+        }
+        for transition_index in nfa.transition_indices() {
+            let (source_index, transition, target_index) = nfa.at(transition_index);
+            let source_index = self.contains_from(&nfa, source_index).expect("state does not exist");
+            let target_index = self.contains_from(&nfa, target_index).expect("state does not exist");
+            self.insert((source_index, transition.clone(), target_index));
+        }
+    }
+}
+
+impl<S, T> Join<DFA<S, T>> for NFA<S, T> 
+where
+    S: Clone + Ord,
+    T: Clone + Ord,
+{
+    fn join(&mut self, dfa: DFA<S, T>) {
+        for state_index in dfa.state_indices() {
+            let state = dfa.at(state_index);
+            self.insert(state.clone());
+        }
+        for transition_index in dfa.transition_indices() {
+            let (source_index, transition, target_index) = dfa.at(transition_index);
+            let source_index = self.contains_from(&dfa, source_index).expect("state does not exist");
+            let target_index = self.contains_from(&dfa, target_index).expect("state does not exist");
+            self.insert((source_index, transition.clone(), target_index));
+        }
     }
 }
 

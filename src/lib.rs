@@ -52,6 +52,10 @@ pub trait Slice<'a, Idx: Sized> {
     fn slice<I: IntoIterator<Item = Idx> + 'a>(&'a self, indices: I) -> Box<dyn Iterator<Item = Self::Output> + 'a>;
 }
 
+pub trait Join<V> {
+    fn join(&mut self, value: V);
+}
+
 pub use crate::dfa::{DeterministicFiniteAutomaton, DFA};
 pub use crate::nfa::{NondeterministicFiniteAutomaton, NFA};
 pub use crate::enfa::{EpsilonNondeterministicFiniteAutomaton, ENFA};
