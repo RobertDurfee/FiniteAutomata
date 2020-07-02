@@ -3,7 +3,7 @@ use std::collections::BTreeSet as Set;
 use std::rc::Rc;
 use std::iter;
 
-use crate::{StateIndex, TransitionIndex, ENFA, DFA, ContainsFrom, ContainsClosureFrom, At, Slice, Contains, Insert, Subsume};
+use crate::{StateIndex, TransitionIndex, ENFA, DFA, ContainsFrom, ContainsClosureFrom, ContainsAllFrom, At, Slice, Contains, Insert, Subsume};
 
 #[derive(Clone)]
 pub struct NondeterministicFiniteAutomaton<S, T> {
@@ -273,6 +273,36 @@ where
 {
     fn contains_closure_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a DFA<S, T>, state_indices: I) -> Option<StateIndex> {
         self.contains(&from.slice(state_indices).cloned().collect()) // TODO: this should be possible without cloning
+    }
+}
+
+impl<'a, S, T> ContainsAllFrom<'a, ENFA<S, T>, StateIndex> for NFA<S, T>
+where
+    S: Ord + 'a,
+    T: Ord + 'a,
+{
+    fn contains_all_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a ENFA<S, T>, state_indices: I) -> Option<Box<dyn Iterator<Item = StateIndex> + 'a>> {
+        from.slice(state_indices).map(|state| self.contains(state)).collect::<Option<Set<_>>>().map(|state_indices| Box::new(state_indices.into_iter()) as Box<dyn Iterator<Item = StateIndex>>)
+    }
+}
+
+impl<'a, S, T> ContainsAllFrom<'a, NFA<S, T>, StateIndex> for NFA<S, T>
+where
+    S: Ord + 'a,
+    T: Ord + 'a,
+{
+    fn contains_all_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a NFA<S, T>, state_indices: I) -> Option<Box<dyn Iterator<Item = StateIndex> + 'a>> {
+        from.slice(state_indices).map(|state| self.contains(state)).collect::<Option<Set<_>>>().map(|state_indices| Box::new(state_indices.into_iter()) as Box<dyn Iterator<Item = StateIndex>>)
+    }
+}
+
+impl<'a, S, T> ContainsAllFrom<'a, DFA<S, T>, StateIndex> for NFA<S, T>
+where
+    S: Ord + 'a,
+    T: Ord + 'a,
+{
+    fn contains_all_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a DFA<S, T>, state_indices: I) -> Option<Box<dyn Iterator<Item = StateIndex> + 'a>> {
+        from.slice(state_indices).map(|state| self.contains(state)).collect::<Option<Set<_>>>().map(|state_indices| Box::new(state_indices.into_iter()) as Box<dyn Iterator<Item = StateIndex>>)
     }
 }
 

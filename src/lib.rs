@@ -42,6 +42,10 @@ pub trait ContainsClosureFrom<'a, T: 'a, Idx: 'a> {
     fn contains_closure_from<I: IntoIterator<Item = &'a Idx> + 'a>(&'a self, from: &'a T, indices: I) -> Option<Idx>;
 }
 
+pub trait ContainsAllFrom<'a, T: 'a, Idx: 'a> {
+    fn contains_all_from<I: IntoIterator<Item = &'a Idx> + 'a>(&'a self, from: &'a T, indices: I) -> Option<Box<dyn Iterator<Item = Idx> + 'a>>;
+}
+
 pub trait At<'a, Idx: Sized> {
     type Output: Sized;
     fn at(&'a self, index: Idx) -> Self::Output;
