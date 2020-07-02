@@ -228,7 +228,7 @@ where
     T: Clone + Ord + 'a,
 {
     fn contains_closure_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a ENFA<S, T>, state_indices: I) -> Option<StateIndex> {
-        self.contains(&from.slice(state_indices).cloned().collect())
+        self.contains(&from.slice(state_indices).cloned().collect()) // TODO: this should be possible without cloning
     }
 }
 
@@ -238,7 +238,7 @@ where
     T: Clone + Ord + 'a,
 {
     fn contains_closure_from<I: IntoIterator<Item = &'a StateIndex> + 'a>(&'a self, from: &'a NFA<S, T>, state_indices: I) -> Option<StateIndex> {
-        self.contains(&from.slice(state_indices).cloned().collect())
+        self.contains(&from.slice(state_indices).cloned().collect()) // TODO: this should be possible without cloning
     }
 }
 
