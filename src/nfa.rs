@@ -3,7 +3,7 @@ use std::collections::BTreeSet as Set;
 use std::rc::Rc;
 use std::iter;
 
-use crate::{StateIndex, TransitionIndex, ENFA, DFA, ContainsFrom, ContainsClosureFrom, At, Slice, Contains, Insert, Join};
+use crate::{StateIndex, TransitionIndex, ENFA, DFA, ContainsFrom, ContainsClosureFrom, At, Slice, Contains, Insert, Subsume};
 
 #[derive(Clone)]
 pub struct NondeterministicFiniteAutomaton<S, T> {
@@ -338,24 +338,24 @@ where
     }
 }
 
-impl<S, T> Join<ENFA<S, T>> for NFA<Set<S>, T> 
+impl<S, T> Subsume<ENFA<S, T>> for NFA<Set<S>, T> 
 where
     S: Clone + Ord,
     T: Clone + Ord,
 {
-    fn join(&mut self, enfa: ENFA<S, T>) {
+    fn subsume(&mut self, enfa: &ENFA<S, T>) {
         let initial_closure_indices: Set<StateIndex> = enfa.closure_indices(enfa.initial_index()).collect();
         let initial_closure: Set<S> = enfa.slice(&initial_closure_indices).cloned().collect();
         let mut stack = vec![initial_closure_indices];
         self.insert(initial_closure);
         while let Some(source_closure_indices) = stack.pop() {
-            let source_index = self.contains_closure_from(&enfa, &source_closure_indices).expect("closure does not exist");
+            let source_index = self.contains_closure_from(enfa, &source_closure_indices).expect("closure does not exist");
             for &source_closure_index in &source_closure_indices {
                 for transition_index in enfa.transition_indices_from(source_closure_index) {
                     let (_, transition, target_index) = enfa.at(transition_index);
                     if let Some(transition) = transition {
                         let target_closure_indices = enfa.closure_indices(target_index).collect();
-                        if let Some(target_index) = self.contains_closure_from(&enfa, &target_closure_indices) {
+                        if let Some(target_index) = self.contains_closure_from(enfa, &target_closure_indices) {
                             self.insert((source_index, transition.clone(), target_index));
                         } else {
                             let target_closure = enfa.slice(&target_closure_indices).cloned().collect();
@@ -370,39 +370,39 @@ where
     }
 }
 
-impl<S, T> Join<NFA<S, T>> for NFA<S, T> 
+impl<S, T> Subsume<NFA<S, T>> for NFA<S, T> 
 where
     S: Clone + Ord,
     T: Clone + Ord,
 {
-    fn join(&mut self, nfa: NFA<S, T>) {
+    fn subsume(&mut self, nfa: &NFA<S, T>) {
         for state_index in nfa.state_indices() {
             let state = nfa.at(state_index);
             self.insert(state.clone());
         }
         for transition_index in nfa.transition_indices() {
             let (source_index, transition, target_index) = nfa.at(transition_index);
-            let source_index = self.contains_from(&nfa, source_index).expect("state does not exist");
-            let target_index = self.contains_from(&nfa, target_index).expect("state does not exist");
+            let source_index = self.contains_from(nfa, source_index).expect("state does not exist");
+            let target_index = self.contains_from(nfa, target_index).expect("state does not exist");
             self.insert((source_index, transition.clone(), target_index));
         }
     }
 }
 
-impl<S, T> Join<DFA<S, T>> for NFA<S, T> 
+impl<S, T> Subsume<DFA<S, T>> for NFA<S, T> 
 where
     S: Clone + Ord,
     T: Clone + Ord,
 {
-    fn join(&mut self, dfa: DFA<S, T>) {
+    fn subsume(&mut self, dfa: &DFA<S, T>) {
         for state_index in dfa.state_indices() {
             let state = dfa.at(state_index);
             self.insert(state.clone());
         }
         for transition_index in dfa.transition_indices() {
             let (source_index, transition, target_index) = dfa.at(transition_index);
-            let source_index = self.contains_from(&dfa, source_index).expect("state does not exist");
-            let target_index = self.contains_from(&dfa, target_index).expect("state does not exist");
+            let source_index = self.contains_from(dfa, source_index).expect("state does not exist");
+            let target_index = self.contains_from(dfa, target_index).expect("state does not exist");
             self.insert((source_index, transition.clone(), target_index));
         }
     }

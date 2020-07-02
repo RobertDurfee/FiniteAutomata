@@ -1,6 +1,6 @@
 use std::collections::BTreeSet as Set;
 
-use crate::{At, StateIndex, NFA, DFA, ContainsFrom, ContainsClosureFrom, Contains, Insert, Slice, Join};
+use crate::{At, StateIndex, NFA, DFA, ContainsFrom, ContainsClosureFrom, Contains, Insert, Slice, Subsume};
 
 pub type EpsilonNondeterministicFiniteAutomaton<S, T> = NFA<S, Option<T>>;
 
@@ -123,41 +123,41 @@ where
     }
 }
 
-// impl<S, T> Join<ENFA<S, T>> for ENFA<S, T> is implicit in nfa.rs
+// impl<S, T> Subsume<ENFA<S, T>> for ENFA<S, T> is implicit in nfa.rs
 
-impl<S, T> Join<NFA<S, T>> for ENFA<S, T> 
+impl<S, T> Subsume<NFA<S, T>> for ENFA<S, T> 
 where
     S: Clone + Ord,
     T: Clone + Ord,
 {
-    fn join(&mut self, nfa: NFA<S, T>) {
+    fn subsume(&mut self, nfa: &NFA<S, T>) {
         for state_index in nfa.state_indices() {
             let state = nfa.at(state_index);
             self.insert(state.clone());
         }
         for transition_index in nfa.transition_indices() {
             let (source_index, transition, target_index) = nfa.at(transition_index);
-            let source_index = self.contains_from(&nfa, source_index).expect("state does not exist");
-            let target_index = self.contains_from(&nfa, target_index).expect("state does not exist");
+            let source_index = self.contains_from(nfa, source_index).expect("state does not exist");
+            let target_index = self.contains_from(nfa, target_index).expect("state does not exist");
             self.insert((source_index, Some(transition.clone()), target_index));
         }
     }
 }
 
-impl<S, T> Join<DFA<S, T>> for ENFA<S, T> 
+impl<S, T> Subsume<DFA<S, T>> for ENFA<S, T> 
 where
     S: Clone + Ord,
     T: Clone + Ord,
 {
-    fn join(&mut self, dfa: DFA<S, T>) {
+    fn subsume(&mut self, dfa: &DFA<S, T>) {
         for state_index in dfa.state_indices() {
             let state = dfa.at(state_index);
             self.insert(state.clone());
         }
         for transition_index in dfa.transition_indices() {
             let (source_index, transition, target_index) = dfa.at(transition_index);
-            let source_index = self.contains_from(&dfa, source_index).expect("state does not exist");
-            let target_index = self.contains_from(&dfa, target_index).expect("state does not exist");
+            let source_index = self.contains_from(dfa, source_index).expect("state does not exist");
+            let target_index = self.contains_from(dfa, target_index).expect("state does not exist");
             self.insert((source_index, Some(transition.clone()), target_index));
         }
     }
