@@ -161,6 +161,17 @@ where
     }
 }
 
+impl<S, T> Contains<(StateIndex, &T), TransitionIndex> for DFA<S, T> 
+where
+    S: Ord,
+    T: Ord,
+{
+    fn contains(&self, transition: &(StateIndex, &T)) -> Option<TransitionIndex> {
+        let &(source, transition) = transition;
+        self.transition_to_index.get(&source).and_then(|transitions| transitions.get(transition)).map(|&(_, index)| index)
+    }
+}
+
 impl<'a, S: 'a, T: 'a> At<'a, StateIndex> for DFA<S, T> {
     type Output = &'a S;
 
