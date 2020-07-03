@@ -66,7 +66,7 @@ where
         self.finals.insert(state_index);
     }
 
-    pub fn is_final(&mut self, state_index: StateIndex) -> bool {
+    pub fn is_final(&self, state_index: StateIndex) -> bool {
         self.at(state_index); // ensure state_index not out of bounds
         self.finals.contains(&state_index)
     }
