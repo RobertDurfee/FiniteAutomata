@@ -5,7 +5,7 @@ use std::iter;
 
 use crate::{StateIndex, TransitionIndex, ENFA, NFA, At, Slice, Contains, ContainsFrom, ContainsClosureFrom, ContainsAllFrom, Insert, Subsume};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DeterministicFiniteAutomaton<S, T> {
     state_to_index: Map<Rc<S>, StateIndex>,
     index_to_state: Map<StateIndex, Rc<S>>,

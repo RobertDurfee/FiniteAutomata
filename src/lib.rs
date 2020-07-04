@@ -4,7 +4,7 @@ pub mod dfa;
 pub mod nfa;
 pub mod enfa;
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct StateIndex {
     inner: usize,
 }
@@ -15,7 +15,7 @@ impl From<usize> for StateIndex {
     }
 }
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct TransitionIndex {
     inner: usize,
 }
