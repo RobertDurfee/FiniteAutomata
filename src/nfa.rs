@@ -183,21 +183,21 @@ impl<S: Clone + Ord, T: Clone + Ord> From<&Enfa<S, T>> for Nfa<Set<S>, T> {
                 }
                 for transition_index in enfa.transition_indices_from(source_closure_index) {
                     let (_, transition, target_index) = enfa.transitions_index(transition_index);
-                    if let Etr::Some(transition) = transition {
+                    if let Etr::Tr(transition) = transition {
                         let target_closure_indices: Set<StateIndex> = enfa.closure_indices(target_index).collect();
                         if let Some(target_index) = states_contains_closure_from(&nfa, enfa, target_closure_indices.iter().copied()) {
-                            nfa.transitions_insert((source_index, Tr::Some(transition.clone()), target_index));
+                            nfa.transitions_insert((source_index, Tr::Tr(transition.clone()), target_index));
                         } else {
                             let target_closure = enfa.states_slice(target_closure_indices.iter().copied()).cloned().collect();
                             stack.push(target_closure_indices);
                             let target_index = nfa.states_insert(target_closure);
-                            nfa.transitions_insert((source_index, Tr::Some(transition.clone()), target_index));
+                            nfa.transitions_insert((source_index, Tr::Tr(transition.clone()), target_index));
                         }
                     }
                 }
             }
         }
-        nfa
+        panic!("Not (fully) implemented")
     }
 }
 
@@ -239,20 +239,21 @@ impl<S: Clone + Ord, T: Clone + Ord> Subsume<Enfa<S, T>> for Nfa<Set<S>, T> {
                 }
                 for transition_index in enfa.transition_indices_from(source_closure_index) {
                     let (_, transition, target_index) = enfa.transitions_index(transition_index);
-                    if let Etr::Some(transition) = transition {
+                    if let Etr::Tr(transition) = transition {
                         let target_closure_indices: Set<StateIndex> = enfa.closure_indices(target_index).collect();
                         if let Some(target_index) = states_contains_closure_from(self, enfa, target_closure_indices.iter().copied()) {
-                            self.transitions_insert((source_index, Tr::Some(transition.clone()), target_index));
+                            self.transitions_insert((source_index, Tr::Tr(transition.clone()), target_index));
                         } else {
                             let target_closure = enfa.states_slice(target_closure_indices.iter().copied()).cloned().collect();
                             stack.push(target_closure_indices);
                             let target_index = self.states_insert(target_closure);
-                            self.transitions_insert((source_index, Tr::Some(transition.clone()), target_index));
+                            self.transitions_insert((source_index, Tr::Tr(transition.clone()), target_index));
                         }
                     }
                 }
             }
         }
+        panic!("Not (fully) implemented")
     }
 }
 
@@ -350,14 +351,14 @@ mod tests {
         let expected = Expected {
             initial: set![0],
             transitions: set![
-                (set![0], Tr::Some('a'), set![1])
+                (set![0], Tr::Tr('a'), set![1])
             ],
             finals: set![set![1]]
         };
         let mut actual = Nfa::new(set![0]);
         let s0 = actual.initial_index();
         let s1 = actual.states_insert(set![1]);
-        actual.transitions_insert((s0, Tr::Some('a'), s1));
+        actual.transitions_insert((s0, Tr::Tr('a'), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -367,14 +368,14 @@ mod tests {
         let expected = Expected {
             initial: set![0, 1, 2, 3, 4],
             transitions: set![
-                (set![0, 1, 2, 3, 4], Tr::Some('a'), set![1, 5])
+                (set![0, 1, 2, 3, 4], Tr::Tr('a'), set![1, 5])
             ],
             finals: set![set![0, 1, 2, 3, 4], set![1, 5]]
         };
         let mut actual = Nfa::new(set![0, 1, 2, 3, 4]);
         let s01234 = actual.initial_index();
         let s15 = actual.states_insert(set![1, 5]);
-        actual.transitions_insert((s01234, Tr::Some('a'), s15));
+        actual.transitions_insert((s01234, Tr::Tr('a'), s15));
         actual.set_final(s01234);
         actual.set_final(s15);
         assert_eq(expected, actual);
@@ -385,14 +386,14 @@ mod tests {
         let expected = Expected {
             initial: set![0, 2],
             transitions: set![
-                (set![0, 2], Tr::Some('a'), set![1, 3, 4, 5])
+                (set![0, 2], Tr::Tr('a'), set![1, 3, 4, 5])
             ],
             finals: set![set![1, 3, 4, 5]]
         };
         let mut actual = Nfa::new(set![0, 2]);
         let s02 = actual.initial_index();
         let s1345 = actual.states_insert(set![1, 3, 4, 5]);
-        actual.transitions_insert((s02, Tr::Some('a'), s1345));
+        actual.transitions_insert((s02, Tr::Tr('a'), s1345));
         actual.set_final(s1345);
         assert_eq(expected, actual);
     }
@@ -402,16 +403,16 @@ mod tests {
         let expected = Expected {
             initial: set![0, 1, 2],
             transitions: set![
-                (set![0, 1, 2], Tr::Some('a'), set![1, 2, 3]),
-                (set![1, 2, 3], Tr::Some('a'), set![1, 2, 3])
+                (set![0, 1, 2], Tr::Tr('a'), set![1, 2, 3]),
+                (set![1, 2, 3], Tr::Tr('a'), set![1, 2, 3])
             ],
             finals: set![set![0, 1, 2], set![1, 2, 3]]
         };
         let mut actual = Nfa::new(set![0, 1, 2]);
         let s012 = actual.initial_index();
         let s123 = actual.states_insert(set![1, 2, 3]);
-        actual.transitions_insert((s012, Tr::Some('a'), s123));
-        actual.transitions_insert((s123, Tr::Some('a'), s123));
+        actual.transitions_insert((s012, Tr::Tr('a'), s123));
+        actual.transitions_insert((s123, Tr::Tr('a'), s123));
         actual.set_final(s012);
         actual.set_final(s123);
         assert_eq(expected, actual);
@@ -422,8 +423,8 @@ mod tests {
         let expected = Expected {
             initial: set![0, 2, 4],
             transitions: set![
-                (set![0, 2, 4], Tr::Some('a'), set![1, 3]),
-                (set![0, 2, 4], Tr::Some('a'), set![1, 5])
+                (set![0, 2, 4], Tr::Tr('a'), set![1, 3]),
+                (set![0, 2, 4], Tr::Tr('a'), set![1, 5])
             ],
             finals: set![set![1, 3], set![1, 5]]
         };
@@ -431,8 +432,8 @@ mod tests {
         let s024 = actual.initial_index();
         let s13 = actual.states_insert(set![1, 3]);
         let s15 = actual.states_insert(set![1, 5]);
-        actual.transitions_insert((s024, Tr::Some('a'), s13));
-        actual.transitions_insert((s024, Tr::Some('a'), s15));
+        actual.transitions_insert((s024, Tr::Tr('a'), s13));
+        actual.transitions_insert((s024, Tr::Tr('a'), s15));
         actual.set_final(s13);
         actual.set_final(s15);
         assert_eq(expected, actual);
@@ -448,7 +449,7 @@ mod tests {
         let mut enfa = Enfa::new(0);
         let s0 = enfa.initial_index();
         let s1 = enfa.states_insert(1);
-        enfa.transitions_insert((s0, Etr::None, s1));
+        enfa.transitions_insert((s0, Etr::Epsilon, s1));
         enfa.set_final(s1);
         let actual = Nfa::from(&enfa);
         assert_eq(expected, actual);
@@ -459,14 +460,14 @@ mod tests {
         let expected = Expected {
             initial: set![0],
             transitions: set![
-                (set![0], Tr::Some('a'), set![1])
+                (set![0], Tr::Tr('a'), set![1])
             ],
             finals: set![set![1]]
         };
         let mut enfa = Enfa::new(0);
         let s0 = enfa.initial_index();
         let s1 = enfa.states_insert(1);
-        enfa.transitions_insert((s0, Etr::Some('a'), s1));
+        enfa.transitions_insert((s0, Etr::Tr('a'), s1));
         enfa.set_final(s1);
         let actual = Nfa::from(&enfa);
         assert_eq(expected, actual);
@@ -477,7 +478,7 @@ mod tests {
         let expected = Expected {
             initial: set![0, 1, 2, 3, 4],
             transitions: set![
-                (set![0, 1, 2, 3, 4], Tr::Some('a'), set![1, 5])
+                (set![0, 1, 2, 3, 4], Tr::Tr('a'), set![1, 5])
             ],
             finals: set![set![0, 1, 2, 3, 4], set![1, 5]]
         };
@@ -488,12 +489,12 @@ mod tests {
         let s3 = enfa.states_insert(3);
         let s4 = enfa.states_insert(4);
         let s5 = enfa.states_insert(5);
-        enfa.transitions_insert((s0, Etr::None, s2));
-        enfa.transitions_insert((s0, Etr::None, s4));
-        enfa.transitions_insert((s2, Etr::None, s3));
-        enfa.transitions_insert((s4, Etr::Some('a'), s5));
-        enfa.transitions_insert((s3, Etr::None, s1));
-        enfa.transitions_insert((s5, Etr::None, s1));
+        enfa.transitions_insert((s0, Etr::Epsilon, s2));
+        enfa.transitions_insert((s0, Etr::Epsilon, s4));
+        enfa.transitions_insert((s2, Etr::Epsilon, s3));
+        enfa.transitions_insert((s4, Etr::Tr('a'), s5));
+        enfa.transitions_insert((s3, Etr::Epsilon, s1));
+        enfa.transitions_insert((s5, Etr::Epsilon, s1));
         enfa.set_final(s1);
         let actual = Nfa::from(&enfa);
         assert_eq(expected, actual);
@@ -504,7 +505,7 @@ mod tests {
         let expected = Expected {
             initial: set![0, 2],
             transitions: set![
-                (set![0, 2], Tr::Some('a'), set![1, 3, 4, 5])
+                (set![0, 2], Tr::Tr('a'), set![1, 3, 4, 5])
             ],
             finals: set![set![1, 3, 4, 5]]
         };
@@ -515,11 +516,11 @@ mod tests {
         let s3 = enfa.states_insert(3);
         let s4 = enfa.states_insert(4);
         let s5 = enfa.states_insert(5);
-        enfa.transitions_insert((s0, Etr::None, s2));
-        enfa.transitions_insert((s2, Etr::Some('a'), s3));
-        enfa.transitions_insert((s3, Etr::None, s4));
-        enfa.transitions_insert((s4, Etr::None, s5));
-        enfa.transitions_insert((s5, Etr::None, s1));
+        enfa.transitions_insert((s0, Etr::Epsilon, s2));
+        enfa.transitions_insert((s2, Etr::Tr('a'), s3));
+        enfa.transitions_insert((s3, Etr::Epsilon, s4));
+        enfa.transitions_insert((s4, Etr::Epsilon, s5));
+        enfa.transitions_insert((s5, Etr::Epsilon, s1));
         enfa.set_final(s1);
         let actual = Nfa::from(&enfa);
         assert_eq(expected, actual);
@@ -530,8 +531,8 @@ mod tests {
         let expected = Expected {
             initial: set![0, 1, 2],
             transitions: set![
-                (set![0, 1, 2], Tr::Some('a'), set![1, 2, 3]),
-                (set![1, 2, 3], Tr::Some('a'), set![1, 2, 3])
+                (set![0, 1, 2], Tr::Tr('a'), set![1, 2, 3]),
+                (set![1, 2, 3], Tr::Tr('a'), set![1, 2, 3])
             ],
             finals: set![set![0, 1, 2], set![1, 2, 3]]
         };
@@ -540,11 +541,11 @@ mod tests {
         let s1 = enfa.states_insert(1);
         let s2 = enfa.states_insert(2);
         let s3 = enfa.states_insert(3);
-        enfa.transitions_insert((s0, Etr::None, s1));
-        enfa.transitions_insert((s0, Etr::None, s2));
-        enfa.transitions_insert((s2, Etr::Some('a'), s3));
-        enfa.transitions_insert((s3, Etr::None, s2));
-        enfa.transitions_insert((s3, Etr::None, s1));
+        enfa.transitions_insert((s0, Etr::Epsilon, s1));
+        enfa.transitions_insert((s0, Etr::Epsilon, s2));
+        enfa.transitions_insert((s2, Etr::Tr('a'), s3));
+        enfa.transitions_insert((s3, Etr::Epsilon, s2));
+        enfa.transitions_insert((s3, Etr::Epsilon, s1));
         enfa.set_final(s1);
         let actual = Nfa::from(&enfa);
         assert_eq(expected, actual);

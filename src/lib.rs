@@ -35,38 +35,37 @@ impl From<u128> for TransitionIndex {
 /// A transition with epsilon moves.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Etr<T> {
-    /// A default transition for all unspecified symbols in alphabet (mathematically referred to as $\Sigma$).
-    /// Currently not supported.
-    All,
+    /// A default transition for all unspecified transitions in alphabet (mathematically referred to as $\Sigma$).
+    Else,
 
-    /// A basic transition for a single symbol in the alphabet.
-    Some(T),
+    /// A basic transition for a single transition in the alphabet.
+    Tr(T),
 
-    /// An empty transition for no symbols in the alphabet (mathematically referred to as $\varepsilon$).
-    None,
+    /// An empty transition for no transitions in the alphabet (mathematically referred to as $\varepsilon$).
+    Epsilon,
 }
 
 impl<T> Etr<T> {
     /// Check if transition is default
-    pub fn is_all(&self) -> bool {
+    pub fn is_else(&self) -> bool {
         match self {
-            Etr::All => true,
+            Etr::Else => true,
             _ => false,
         }
     }
 
     /// Check if transition is basic
-    pub fn is_some(&self) -> bool {
+    pub fn is_tr(&self) -> bool {
         match self {
-            Etr::Some(..) => true,
+            Etr::Tr(..) => true,
             _ => false,
         }
     }
 
     /// Check if transition is empty
-    pub fn is_none(&self) -> bool {
+    pub fn is_epsilon(&self) -> bool {
         match self {
-            Etr::None => true,
+            Etr::Epsilon => true,
             _ => false,
         }
     }
@@ -74,8 +73,8 @@ impl<T> Etr<T> {
 
 impl<T> From<T> for Etr<T> {
     /// Create a basic transition with epsilon moves from the transition data.
-    fn from(t: T) -> Etr<T> {
-        Etr::Some(t)
+    fn from(tr: T) -> Etr<T> {
+        Etr::Tr(tr)
     }
 }
 
@@ -83,8 +82,8 @@ impl<T> From<Tr<T>> for Etr<T> {
     /// Create a transition without epsilon moves from a transition with epsilon moves.
     fn from(tr: Tr<T>) -> Etr<T> {
         match tr {
-            Tr::All => Etr::All,
-            Tr::Some(transition) => Etr::Some(transition),
+            Tr::Else => Etr::Else,
+            Tr::Tr(tr) => Etr::Tr(tr),
         }
     }
 }
@@ -92,27 +91,26 @@ impl<T> From<Tr<T>> for Etr<T> {
 /// A transition without epsilon moves.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Tr<T> {
-    /// A default transition for all unspecified symbols in alphabet (mathematically referred to as $\Sigma$)
-    /// Currently not supported.
-    All,
+    /// A default transition for all unspecified transitions in alphabet (mathematically referred to as $\Sigma$)
+    Else,
 
-    /// A basic transition for a single symbol in the alphabet
-    Some(T),
+    /// A basic transition for a single transition in the alphabet.
+    Tr(T),
 }
 
 impl<T> Tr<T> {
     /// Check if transition is default
-    pub fn is_all(&self) -> bool {
+    pub fn is_else(&self) -> bool {
         match self {
-            Tr::All => true,
+            Tr::Else => true,
             _ => false,
         }
     }
 
     /// Check if transition is basic
-    pub fn is_some(&self) -> bool {
+    pub fn is_tr(&self) -> bool {
         match self {
-            Tr::Some(..) => true,
+            Tr::Tr(..) => true,
             _ => false,
         }
     }
@@ -120,8 +118,8 @@ impl<T> Tr<T> {
 
 impl<T> From<T> for Tr<T> {
     /// Create a basic transition without epsilon moves from the transition data.
-    fn from(t: T) -> Tr<T> {
-        Tr::Some(t)
+    fn from(tr: T) -> Tr<T> {
+        Tr::Tr(tr)
     }
 }
 

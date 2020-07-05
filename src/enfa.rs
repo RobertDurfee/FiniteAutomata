@@ -88,10 +88,24 @@ impl<S: Ord, T: Ord> Enfa<S, T> {
         let mut closure = Set::new();
         while let Some(source_index) = stack.pop() {
             closure.insert(source_index);
+            let mut else_target_index = None;
+            let mut has_epsilon = false;
             for transition_index in self.transition_indices_from(source_index) {
                 let (_, transition, target_index) = self.transitions_index(transition_index);
-                if transition.is_none() && !closure.contains(&target_index) {
-                    stack.push(target_index);
+                if transition.is_epsilon() {
+                    has_epsilon = true;
+                    if !closure.contains(&target_index) {
+                        stack.push(target_index);
+                    }
+                } else if transition.is_else() {
+                    else_target_index = Some(target_index);
+                }
+            }
+            if let Some(else_target_index) = else_target_index {
+                if !has_epsilon {
+                    if !closure.contains(&else_target_index) {
+                        stack.push(else_target_index);
+                    }
                 }
             }
         }
@@ -323,14 +337,14 @@ mod tests {
         let expected = Expected::<_, char> {
             initial: 0,
             transitions: set![
-                (0, Etr::None, 1)
+                (0, Etr::Epsilon, 1)
             ],
             finals: set![1]
         };
         let mut actual = Enfa::new(0);
         let s0 = actual.initial_index();
         let s1 = actual.states_insert(1);
-        actual.transitions_insert((s0, Etr::None, s1));
+        actual.transitions_insert((s0, Etr::Epsilon, s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -340,14 +354,14 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, Etr::Some('a'), 1)
+                (0, Etr::Tr('a'), 1)
             ],
             finals: set![1]
         };
         let mut actual = Enfa::new(0);
         let s0 = actual.initial_index();
         let s1 = actual.states_insert(1);
-        actual.transitions_insert((s0, Etr::Some('a'), s1));
+        actual.transitions_insert((s0, Etr::Tr('a'), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -357,12 +371,12 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, Etr::None, 2),
-                (0, Etr::None, 4),
-                (2, Etr::None, 3),
-                (4, Etr::Some('a'), 5),
-                (3, Etr::None, 1),
-                (5, Etr::None, 1)
+                (0, Etr::Epsilon, 2),
+                (0, Etr::Epsilon, 4),
+                (2, Etr::Epsilon, 3),
+                (4, Etr::Tr('a'), 5),
+                (3, Etr::Epsilon, 1),
+                (5, Etr::Epsilon, 1)
             ],
             finals: set![1]
         };
@@ -373,12 +387,12 @@ mod tests {
         let s3 = actual.states_insert(3);
         let s4 = actual.states_insert(4);
         let s5 = actual.states_insert(5);
-        actual.transitions_insert((s0, Etr::None, s2));
-        actual.transitions_insert((s0, Etr::None, s4));
-        actual.transitions_insert((s2, Etr::None, s3));
-        actual.transitions_insert((s4, Etr::Some('a'), s5));
-        actual.transitions_insert((s3, Etr::None, s1));
-        actual.transitions_insert((s5, Etr::None, s1));
+        actual.transitions_insert((s0, Etr::Epsilon, s2));
+        actual.transitions_insert((s0, Etr::Epsilon, s4));
+        actual.transitions_insert((s2, Etr::Epsilon, s3));
+        actual.transitions_insert((s4, Etr::Tr('a'), s5));
+        actual.transitions_insert((s3, Etr::Epsilon, s1));
+        actual.transitions_insert((s5, Etr::Epsilon, s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -388,11 +402,11 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, Etr::None, 2),
-                (2, Etr::Some('a'), 3),
-                (3, Etr::None, 4),
-                (4, Etr::None, 5),
-                (5, Etr::None, 1)
+                (0, Etr::Epsilon, 2),
+                (2, Etr::Tr('a'), 3),
+                (3, Etr::Epsilon, 4),
+                (4, Etr::Epsilon, 5),
+                (5, Etr::Epsilon, 1)
             ],
             finals: set![1]
         };
@@ -403,11 +417,11 @@ mod tests {
         let s3 = actual.states_insert(3);
         let s4 = actual.states_insert(4);
         let s5 = actual.states_insert(5);
-        actual.transitions_insert((s0, Etr::None, s2));
-        actual.transitions_insert((s2, Etr::Some('a'), s3));
-        actual.transitions_insert((s3, Etr::None, s4));
-        actual.transitions_insert((s4, Etr::None, s5));
-        actual.transitions_insert((s5, Etr::None, s1));
+        actual.transitions_insert((s0, Etr::Epsilon, s2));
+        actual.transitions_insert((s2, Etr::Tr('a'), s3));
+        actual.transitions_insert((s3, Etr::Epsilon, s4));
+        actual.transitions_insert((s4, Etr::Epsilon, s5));
+        actual.transitions_insert((s5, Etr::Epsilon, s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -417,11 +431,11 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, Etr::None, 1),
-                (0, Etr::None, 2),
-                (2, Etr::Some('a'), 3),
-                (3, Etr::None, 2),
-                (3, Etr::None, 1)
+                (0, Etr::Epsilon, 1),
+                (0, Etr::Epsilon, 2),
+                (2, Etr::Tr('a'), 3),
+                (3, Etr::Epsilon, 2),
+                (3, Etr::Epsilon, 1)
             ],
             finals: set![1]
         };
@@ -430,11 +444,11 @@ mod tests {
         let s1 = actual.states_insert(1);
         let s2 = actual.states_insert(2);
         let s3 = actual.states_insert(3);
-        actual.transitions_insert((s0, Etr::None, s1));
-        actual.transitions_insert((s0, Etr::None, s2));
-        actual.transitions_insert((s2, Etr::Some('a'), s3));
-        actual.transitions_insert((s3, Etr::None, s2));
-        actual.transitions_insert((s3, Etr::None, s1));
+        actual.transitions_insert((s0, Etr::Epsilon, s1));
+        actual.transitions_insert((s0, Etr::Epsilon, s2));
+        actual.transitions_insert((s2, Etr::Tr('a'), s3));
+        actual.transitions_insert((s3, Etr::Epsilon, s2));
+        actual.transitions_insert((s3, Etr::Epsilon, s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
