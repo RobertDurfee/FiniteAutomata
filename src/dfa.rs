@@ -125,6 +125,16 @@ impl<S: Ord, T: Ord> Dfa<S, T> {
         }
     }
 
+    /// Return the transition index of the transition with the outgoing data, if it exists.
+    pub fn transitions_contains_outgoing(&self, transition: (StateIndex, &Tr<T>)) -> Option<TransitionIndex> {
+        let (source_index, transition) = transition;
+        if let Some(&(_, transition_index)) = self.transition_to_index.get(&source_index).and_then(|transitions| transitions.get(transition)) {
+            Some(transition_index)
+        } else {
+            None
+        }
+    }
+
     /// Get the transition at the transition index.
     pub fn transitions_index(&self, transition_index: TransitionIndex) -> (StateIndex, &Tr<T>, StateIndex) {
         let (source_index, transition, target_index) = self.index_to_transition.get(&transition_index).expect("transition index out of bounds");
