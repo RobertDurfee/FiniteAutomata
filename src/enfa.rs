@@ -3,14 +3,16 @@ use std::{
         BTreeMap as Map,
         BTreeSet as Set,
     },
-    rc::Rc,
     iter,
 };
-
+use ::interval_map::{
+    Interval,
+    IntervalMap,
+    interval_map,
+};
 use crate::{
     StateIndex,
     TransitionIndex,
-    Etr,
     Subsume,
     Nfa,
     Dfa,
@@ -22,23 +24,22 @@ use crate::{
 
 /// A nondeterministic finite automaton with epsilon moves.
 pub struct Enfa<S, T> {
-    state_to_index: Map<Rc<S>, StateIndex>,
-    index_to_state: Map<StateIndex, Rc<S>>,
+    state_to_index: Map<S, StateIndex>,
+    index_to_state: Map<StateIndex, S>,
     next_state_index: u128,
-    transition_to_index: Map<StateIndex, Map<Rc<Etr<T>>, Map<StateIndex, TransitionIndex>>>,
-    index_to_transition: Map<TransitionIndex, (StateIndex, Rc<Etr<T>>, StateIndex)>,
+    transition_to_index: Map<StateIndex, IntervalMap<T, Map<StateIndex, TransitionIndex>>>,
+    index_to_transition: Map<TransitionIndex, (StateIndex, Interval<T>, StateIndex)>,
     next_transition_index: u128,
     initial_index: StateIndex,
     final_indices: Set<StateIndex>
 }
 
-impl<S: Ord, T: Ord> Enfa<S, T> {
+impl<S: Clone + Ord, T: Clone + Ord> Enfa<S, T> {
     /// Create a new nondeterministic finite automaton with epsilon moves with the given initial state.
     pub fn new(initial: S) -> Enfa<S, T> {
-        let initial_rc = Rc::new(initial);
         Enfa {
-            state_to_index: map![initial_rc.clone() => 0.into()],
-            index_to_state: map![0.into() => initial_rc],
+            state_to_index: map![initial.clone() => 0.into()],
+            index_to_state: map![0.into() => initial],
             next_state_index: 1,
             transition_to_index: Map::new(),
             index_to_transition: Map::new(),
@@ -55,13 +56,14 @@ impl<S: Ord, T: Ord> Enfa<S, T> {
         } else {
             let state_index = self.next_state_index.into();
             self.next_state_index += 1;
-            let state_rc = Rc::new(state);
-            self.state_to_index.insert(state_rc.clone(), state_index);
-            self.index_to_state.insert(state_index, state_rc);
+            self.state_to_index.insert(state.clone(), state_index);
+            self.index_to_state.insert(state_index, state);
             state_index
         }
     }
+}
 
+impl<S: Ord, T: Ord> Enfa<S, T> {
     /// Return the state index of the state, if it exists.
     pub fn states_contains(&self, state: &S) -> Option<StateIndex> {
         self.state_to_index.get(state).copied()
@@ -88,33 +90,24 @@ impl<S: Ord, T: Ord> Enfa<S, T> {
         let mut closure = Set::new();
         while let Some(source_index) = stack.pop() {
             closure.insert(source_index);
-            let mut else_target_index = None;
-            let mut has_epsilon = false;
             for transition_index in self.transition_indices_from(source_index) {
-                let (_, transition, target_index) = self.transitions_index(transition_index);
-                if transition.is_epsilon() {
-                    has_epsilon = true;
+                let (_, transition_interval, target_index) = self.transitions_index(transition_index);
+                if transition_interval.is_empty() {
                     if !closure.contains(&target_index) {
                         stack.push(target_index);
-                    }
-                } else if transition.is_else() {
-                    else_target_index = Some(target_index);
-                }
-            }
-            if let Some(else_target_index) = else_target_index {
-                if !has_epsilon {
-                    if !closure.contains(&else_target_index) {
-                        stack.push(else_target_index);
                     }
                 }
             }
         }
-        Box::new(closure.into_iter())
+        let result = Box::new(closure.into_iter());
+        result
     }
+}
 
+impl<S: Clone + Ord, T: Clone + Ord> Enfa<S, T> {
     /// Insert the transition and return the associated transition index.
-    pub fn transitions_insert(&mut self, transition: (StateIndex, Etr<T>, StateIndex)) -> TransitionIndex {
-        let (source_index, transition, target_index) = transition;
+    pub fn transitions_insert(&mut self, transition: (StateIndex, Interval<T>, StateIndex)) -> TransitionIndex {
+        let (source_index, transition_interval, target_index) = transition;
         if self.index_to_state.get(&source_index).is_none() {
             panic!("source state index out of bounds");
         }
@@ -123,38 +116,41 @@ impl<S: Ord, T: Ord> Enfa<S, T> {
         }
         let transition_index = self.next_transition_index.into();
         self.next_transition_index += 1;
-        let transition_rc = Rc::new(transition);
         if let Some(transitions) = self.transition_to_index.get_mut(&source_index) {
-            if let Some(targets) = transitions.get_mut(&transition_rc) {
-                if let Some(&transition_index) = targets.get(&target_index) {
-                    return transition_index;
-                } else {
+            transitions.update(&transition_interval, |targets| {
+                if let Some(mut targets) = targets {
+                    if targets.get(&target_index).is_some() {
+                        panic!("transition intervals must not overlap");
+                    }
                     targets.insert(target_index, transition_index);
+                    Some(targets)
+                } else {
+                    Some(map![target_index => transition_index])
                 }
-            } else {
-                transitions.insert(transition_rc.clone(), map![target_index => transition_index]);
-            }
+            });
         } else {
-            self.transition_to_index.insert(source_index, map![transition_rc.clone() => map![target_index => transition_index]]);
+            self.transition_to_index.insert(source_index, interval_map![transition_interval.clone() => map![target_index => transition_index]]);
         }
-        self.index_to_transition.insert(transition_index, (source_index, transition_rc, target_index));
+        self.index_to_transition.insert(transition_index, (source_index, transition_interval, target_index));
         transition_index
     }
+}
 
+impl<S: Ord, T: Ord> Enfa<S, T> {
     /// Return the transition index of the transition, if it exists.
-    pub fn transitions_contains(&self, transition: (StateIndex, &Etr<T>, StateIndex)) -> Option<TransitionIndex> {
+    pub fn transitions_contains(&self, transition: (StateIndex, &T, StateIndex)) -> Option<TransitionIndex> {
         let (source_index, transition, target_index) = transition;
         self.transition_to_index.get(&source_index).and_then(|transitions| transitions.get(transition).and_then(|targets| targets.get(&target_index))).copied()
     }
 
     /// Get the transition at the transition index.
-    pub fn transitions_index(&self, transition_index: TransitionIndex) -> (StateIndex, &Etr<T>, StateIndex) {
+    pub fn transitions_index(&self, transition_index: TransitionIndex) -> (StateIndex, &Interval<T>, StateIndex) {
         let (source_index, transition, target_index) = self.index_to_transition.get(&transition_index).expect("transition index out of bounds");
         (*source_index, transition, *target_index)
     }
 
     /// Convert the transition indices to transitions.
-    pub fn transitions_slice<'a>(&'a self, transition_indices: impl IntoIterator<Item = TransitionIndex> + 'a) -> Box<dyn Iterator<Item = (StateIndex, &Etr<T>, StateIndex)> + 'a> {
+    pub fn transitions_slice<'a>(&'a self, transition_indices: impl IntoIterator<Item = TransitionIndex> + 'a) -> Box<dyn Iterator<Item = (StateIndex, &Interval<T>, StateIndex)> + 'a> {
         Box::new(transition_indices.into_iter().map(move |transition_index| self.transitions_index(transition_index)))
     }
 
@@ -209,7 +205,7 @@ impl<S: Clone + Ord, T: Clone + Ord> From<&Nfa<S, T>> for Enfa<S, T> {
             let (source_index, transition, target_index) = nfa.transitions_index(transition_index);
             let source_index = states_contains_from(&enfa, nfa, source_index).expect("state does not exist");
             let target_index = states_contains_from(&enfa, nfa, target_index).expect("state does not exist");
-            enfa.transitions_insert((source_index, transition.clone().into(), target_index));
+            enfa.transitions_insert((source_index, transition.clone(), target_index));
         }
         for final_index in nfa.final_indices() {
             let final_index = states_contains_from(&enfa, nfa, final_index).expect("state does not exist");
@@ -232,7 +228,7 @@ impl<S: Clone + Ord, T: Clone + Ord> From<&Dfa<S, T>> for Enfa<S, T> {
             let (source_index, transition, target_index) = dfa.transitions_index(transition_index);
             let source_index = states_contains_from(&enfa, dfa, source_index).expect("state does not exist");
             let target_index = states_contains_from(&enfa, dfa, target_index).expect("state does not exist");
-            enfa.transitions_insert((source_index, transition.clone().into(), target_index));
+            enfa.transitions_insert((source_index, transition.clone(), target_index));
         }
         for final_index in dfa.final_indices() {
             let final_index = states_contains_from(&enfa, dfa, final_index).expect("state does not exist");
@@ -269,7 +265,7 @@ impl<S: Clone + Ord, T: Clone + Ord> Subsume<Nfa<S, T>> for Enfa<S, T> {
             let (source_index, transition, target_index) = nfa.transitions_index(transition_index);
             let source_index = states_contains_from(self, nfa, source_index).expect("state does not exist");
             let target_index = states_contains_from(self, nfa, target_index).expect("state does not exist");
-            self.transitions_insert((source_index, transition.clone().into(), target_index));
+            self.transitions_insert((source_index, transition.clone(), target_index));
         }
     }
 }
@@ -285,7 +281,7 @@ impl<S: Clone + Ord, T: Clone + Ord> Subsume<Dfa<S, T>> for Enfa<S, T> {
             let (source_index, transition, target_index) = dfa.transitions_index(transition_index);
             let source_index = states_contains_from(self, dfa, source_index).expect("state does not exist");
             let target_index = states_contains_from(self, dfa, target_index).expect("state does not exist");
-            self.transitions_insert((source_index, transition.clone().into(), target_index));
+            self.transitions_insert((source_index, transition.clone(), target_index));
         }
     }
 }
@@ -314,142 +310,149 @@ mod tests {
         collections::BTreeSet as Set,
         fmt::Debug,
     };
+    use interval_map::Interval;
+    use crate::Enfa;
 
-    use crate::{
-        Etr,
-        Enfa,
-    };
+    #[test]
+    fn test_epsilon() {
+        let expected = Expected {
+            initial: 0,
+            transitions: set![
+                (0, empty(), 1)
+            ],
+            finals: set![1]
+        };
+        let mut actual = Enfa::new(0);
+        let s0 = actual.initial_index();
+        let s1 = actual.states_insert(1);
+        actual.transitions_insert((s0, empty(), s1));
+        actual.set_final(s1);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_symbol() {
+        let expected = Expected {
+            initial: 0,
+            transitions: set![
+                (0, singleton(A), 1)
+            ],
+            finals: set![1]
+        };
+        let mut actual = Enfa::new(0);
+        let s0 = actual.initial_index();
+        let s1 = actual.states_insert(1);
+        actual.transitions_insert((s0, singleton(A), s1));
+        actual.set_final(s1);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_alternation() {
+        let expected = Expected {
+            initial: 0,
+            transitions: set![
+                (0, empty(), 2),
+                (0, empty(), 4),
+                (2, empty(), 3),
+                (4, singleton(A), 5),
+                (3, empty(), 1),
+                (5, empty(), 1)
+            ],
+            finals: set![1]
+        };
+        let mut actual = Enfa::new(0);
+        let s0 = actual.initial_index();
+        let s1 = actual.states_insert(1);
+        let s2 = actual.states_insert(2);
+        let s3 = actual.states_insert(3);
+        let s4 = actual.states_insert(4);
+        let s5 = actual.states_insert(5);
+        actual.transitions_insert((s0, empty(), s2));
+        actual.transitions_insert((s0, empty(), s4));
+        actual.transitions_insert((s2, empty(), s3));
+        actual.transitions_insert((s4, singleton(A), s5));
+        actual.transitions_insert((s3, empty(), s1));
+        actual.transitions_insert((s5, empty(), s1));
+        actual.set_final(s1);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_concatenation() {
+        let expected = Expected {
+            initial: 0,
+            transitions: set![
+                (0, empty(), 2),
+                (2, singleton(A), 3),
+                (3, empty(), 4),
+                (4, empty(), 5),
+                (5, empty(), 1)
+            ],
+            finals: set![1]
+        };
+        let mut actual = Enfa::new(0);
+        let s0 = actual.initial_index();
+        let s1 = actual.states_insert(1);
+        let s2 = actual.states_insert(2);
+        let s3 = actual.states_insert(3);
+        let s4 = actual.states_insert(4);
+        let s5 = actual.states_insert(5);
+        actual.transitions_insert((s0, empty(), s2));
+        actual.transitions_insert((s2, singleton(A), s3));
+        actual.transitions_insert((s3, empty(), s4));
+        actual.transitions_insert((s4, empty(), s5));
+        actual.transitions_insert((s5, empty(), s1));
+        actual.set_final(s1);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_repetition() {
+        let expected = Expected {
+            initial: 0,
+            transitions: set![
+                (0, empty(), 1),
+                (0, empty(), 2),
+                (2, singleton(A), 3),
+                (3, empty(), 2),
+                (3, empty(), 1)
+            ],
+            finals: set![1]
+        };
+        let mut actual = Enfa::new(0);
+        let s0 = actual.initial_index();
+        let s1 = actual.states_insert(1);
+        let s2 = actual.states_insert(2);
+        let s3 = actual.states_insert(3);
+        actual.transitions_insert((s0, empty(), s1));
+        actual.transitions_insert((s0, empty(), s2));
+        actual.transitions_insert((s2, singleton(A), s3));
+        actual.transitions_insert((s3, empty(), s2));
+        actual.transitions_insert((s3, empty(), s1));
+        actual.set_final(s1);
+        assert_eq(expected, actual);
+    }
 
     struct Expected<S, T> {
         initial: S,
-        transitions: Set<(S, Etr<T>, S)>,
+        transitions: Set<(S, Interval<T>, S)>,
         finals: Set<S>,
     }
 
     fn assert_eq<S: Clone + Debug + Ord, T: Clone + Debug + Ord>(expected: Expected<S, T>, actual: Enfa<S, T>) {
-        assert_eq!(expected.initial, actual.states_index(actual.initial_index()).clone());
-        assert_eq!(expected.transitions, actual.transitions_slice(actual.transition_indices()).map(|(source, transition, target)| (actual.states_index(source).clone(), transition.clone(), actual.states_index(target).clone())).collect());
-        assert_eq!(expected.finals, actual.states_slice(actual.final_indices()).cloned().collect());
+        assert_eq!(expected.initial, actual.states_index(actual.initial_index()).clone(), "initial");
+        assert_eq!(expected.transitions, actual.transitions_slice(actual.transition_indices()).map(|(source, transition, target)| (actual.states_index(source).clone(), transition.clone(), actual.states_index(target).clone())).collect(), "transitions");
+        assert_eq!(expected.finals, actual.states_slice(actual.final_indices()).cloned().collect(), "finals");
     }
 
-    #[test]
-    fn test_1() {
-        let expected = Expected::<_, char> {
-            initial: 0,
-            transitions: set![
-                (0, Etr::Epsilon, 1)
-            ],
-            finals: set![1]
-        };
-        let mut actual = Enfa::new(0);
-        let s0 = actual.initial_index();
-        let s1 = actual.states_insert(1);
-        actual.transitions_insert((s0, Etr::Epsilon, s1));
-        actual.set_final(s1);
-        assert_eq(expected, actual);
+    fn empty() -> Interval<i32> {
+        Interval::new(0, 0)
     }
 
-    #[test]
-    fn test_2() {
-        let expected = Expected {
-            initial: 0,
-            transitions: set![
-                (0, Etr::Tr('a'), 1)
-            ],
-            finals: set![1]
-        };
-        let mut actual = Enfa::new(0);
-        let s0 = actual.initial_index();
-        let s1 = actual.states_insert(1);
-        actual.transitions_insert((s0, Etr::Tr('a'), s1));
-        actual.set_final(s1);
-        assert_eq(expected, actual);
+    fn singleton(value: i32) -> Interval<i32> {
+        Interval::new(value, value + 1)
     }
 
-    #[test]
-    fn test_3() {
-        let expected = Expected {
-            initial: 0,
-            transitions: set![
-                (0, Etr::Epsilon, 2),
-                (0, Etr::Epsilon, 4),
-                (2, Etr::Epsilon, 3),
-                (4, Etr::Tr('a'), 5),
-                (3, Etr::Epsilon, 1),
-                (5, Etr::Epsilon, 1)
-            ],
-            finals: set![1]
-        };
-        let mut actual = Enfa::new(0);
-        let s0 = actual.initial_index();
-        let s1 = actual.states_insert(1);
-        let s2 = actual.states_insert(2);
-        let s3 = actual.states_insert(3);
-        let s4 = actual.states_insert(4);
-        let s5 = actual.states_insert(5);
-        actual.transitions_insert((s0, Etr::Epsilon, s2));
-        actual.transitions_insert((s0, Etr::Epsilon, s4));
-        actual.transitions_insert((s2, Etr::Epsilon, s3));
-        actual.transitions_insert((s4, Etr::Tr('a'), s5));
-        actual.transitions_insert((s3, Etr::Epsilon, s1));
-        actual.transitions_insert((s5, Etr::Epsilon, s1));
-        actual.set_final(s1);
-        assert_eq(expected, actual);
-    }
-
-    #[test]
-    fn test_4() {
-        let expected = Expected {
-            initial: 0,
-            transitions: set![
-                (0, Etr::Epsilon, 2),
-                (2, Etr::Tr('a'), 3),
-                (3, Etr::Epsilon, 4),
-                (4, Etr::Epsilon, 5),
-                (5, Etr::Epsilon, 1)
-            ],
-            finals: set![1]
-        };
-        let mut actual = Enfa::new(0);
-        let s0 = actual.initial_index();
-        let s1 = actual.states_insert(1);
-        let s2 = actual.states_insert(2);
-        let s3 = actual.states_insert(3);
-        let s4 = actual.states_insert(4);
-        let s5 = actual.states_insert(5);
-        actual.transitions_insert((s0, Etr::Epsilon, s2));
-        actual.transitions_insert((s2, Etr::Tr('a'), s3));
-        actual.transitions_insert((s3, Etr::Epsilon, s4));
-        actual.transitions_insert((s4, Etr::Epsilon, s5));
-        actual.transitions_insert((s5, Etr::Epsilon, s1));
-        actual.set_final(s1);
-        assert_eq(expected, actual);
-    }
-
-    #[test]
-    fn test_5() {
-        let expected = Expected {
-            initial: 0,
-            transitions: set![
-                (0, Etr::Epsilon, 1),
-                (0, Etr::Epsilon, 2),
-                (2, Etr::Tr('a'), 3),
-                (3, Etr::Epsilon, 2),
-                (3, Etr::Epsilon, 1)
-            ],
-            finals: set![1]
-        };
-        let mut actual = Enfa::new(0);
-        let s0 = actual.initial_index();
-        let s1 = actual.states_insert(1);
-        let s2 = actual.states_insert(2);
-        let s3 = actual.states_insert(3);
-        actual.transitions_insert((s0, Etr::Epsilon, s1));
-        actual.transitions_insert((s0, Etr::Epsilon, s2));
-        actual.transitions_insert((s2, Etr::Tr('a'), s3));
-        actual.transitions_insert((s3, Etr::Epsilon, s2));
-        actual.transitions_insert((s3, Etr::Epsilon, s1));
-        actual.set_final(s1);
-        assert_eq(expected, actual);
-    }
+    static A: i32 = 0;
 }

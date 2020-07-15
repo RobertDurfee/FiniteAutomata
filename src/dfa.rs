@@ -3,15 +3,16 @@ use std::{
         BTreeMap as Map,
         BTreeSet as Set,
     },
-    rc::Rc,
     iter,
 };
-
+use ::interval_map::{
+    Interval,
+    IntervalMap,
+    interval_map,
+};
 use crate::{
     StateIndex,
     TransitionIndex,
-    Etr,
-    Tr,
     Subsume,
     Enfa,
     Nfa,
@@ -24,23 +25,22 @@ use crate::{
 
 /// A deterministic finite automaton.
 pub struct Dfa<S, T> {
-    state_to_index: Map<Rc<S>, StateIndex>,
-    index_to_state: Map<StateIndex, Rc<S>>,
+    state_to_index: Map<S, StateIndex>,
+    index_to_state: Map<StateIndex, S>,
     next_state_index: u128,
-    transition_to_index: Map<StateIndex, Map<Rc<Tr<T>>, (StateIndex, TransitionIndex)>>,
-    index_to_transition: Map<TransitionIndex, (StateIndex, Rc<Tr<T>>, StateIndex)>,
+    transition_to_index: Map<StateIndex, IntervalMap<T, (StateIndex, TransitionIndex)>>,
+    index_to_transition: Map<TransitionIndex, (StateIndex, Interval<T>, StateIndex)>,
     next_transition_index: u128,
     initial_index: StateIndex,
     final_indices: Set<StateIndex>
 }
 
-impl<S: Ord, T: Ord> Dfa<S, T> {
+impl<S: Clone + Ord, T: Clone + Ord> Dfa<S, T> {
     /// Create a new deterministic finite automaton with the given initial state.
     pub fn new(initial: S) -> Dfa<S, T> {
-        let initial_rc = Rc::new(initial);
         Dfa {
-            state_to_index: map![initial_rc.clone() => 0.into()],
-            index_to_state: map![0.into() => initial_rc],
+            state_to_index: map![initial.clone() => 0.into()],
+            index_to_state: map![0.into() => initial],
             next_state_index: 1,
             transition_to_index: Map::new(),
             index_to_transition: Map::new(),
@@ -57,13 +57,14 @@ impl<S: Ord, T: Ord> Dfa<S, T> {
         } else {
             let state_index = self.next_state_index.into();
             self.next_state_index += 1;
-            let state_rc = Rc::new(state);
-            self.state_to_index.insert(state_rc.clone(), state_index);
-            self.index_to_state.insert(state_index, state_rc);
+            self.state_to_index.insert(state.clone(), state_index);
+            self.index_to_state.insert(state_index, state);
             state_index
         }
     }
+}
 
+impl<S: Ord, T: Ord> Dfa<S, T> {
     /// Return the state index of the state, if it exists.
     pub fn states_contains(&self, state: &S) -> Option<StateIndex> {
         self.state_to_index.get(state).copied()
@@ -83,10 +84,12 @@ impl<S: Ord, T: Ord> Dfa<S, T> {
     pub fn state_indices<'a>(&'a self) -> Box<dyn Iterator<Item = StateIndex> + 'a> {
         Box::new(self.index_to_state.keys().copied())
     }
+}
 
+impl<S: Clone + Ord, T: Clone + Ord> Dfa<S, T> {
     /// Insert the transition and return the associated transition index.
-    pub fn transitions_insert(&mut self, transition: (StateIndex, Tr<T>, StateIndex)) -> TransitionIndex {
-        let (source_index, transition, target_index) = transition;
+    pub fn transitions_insert(&mut self, transition: (StateIndex, Interval<T>, StateIndex)) -> TransitionIndex {
+        let (source_index, transition_interval, target_index) = transition;
         if self.index_to_state.get(&source_index).is_none() {
             panic!("source state index out of bounds");
         }
@@ -95,26 +98,27 @@ impl<S: Ord, T: Ord> Dfa<S, T> {
         }
         let transition_index = self.next_transition_index.into();
         self.next_transition_index += 1;
-        let transition_rc = Rc::new(transition);
         if let Some(transitions) = self.transition_to_index.get_mut(&source_index) {
-            if let Some(target_and_index) = transitions.get_mut(&transition_rc) {
-                target_and_index.0 = target_index; // overwrite existing
-                self.index_to_transition.get_mut(&target_and_index.1).unwrap().2 = target_index; // overwrite existing
-                return target_and_index.1
-            } else {
-                transitions.insert(transition_rc.clone(), (target_index, transition_index));
-            }
+            transitions.update(&transition_interval, |target_index_transition_index| {
+                if target_index_transition_index.is_some() {
+                    panic!("transition intervals must not overlap")
+                } else {
+                    Some((target_index, transition_index))
+                }
+            });
         } else {
-            self.transition_to_index.insert(source_index, map![transition_rc.clone() => (target_index, transition_index)]);
+            self.transition_to_index.insert(source_index, interval_map![transition_interval.clone() => (target_index, transition_index)]);
         }
-        self.index_to_transition.insert(transition_index, (source_index, transition_rc, target_index));
+        self.index_to_transition.insert(transition_index, (source_index, transition_interval, target_index));
         transition_index
     }
+}
 
+impl<S: Ord, T: Ord> Dfa<S, T> {
     /// Return the transition index of the transition, if it exists.
-    pub fn transitions_contains(&self, transition: (StateIndex, &Tr<T>, StateIndex)) -> Option<TransitionIndex> {
-        let (source_index, transition, target_index) = transition;
-        if let Some(target_and_index) = self.transition_to_index.get(&source_index).and_then(|transitions| transitions.get(transition)) {
+    pub fn transitions_contains(&self, transition: (StateIndex, &T, StateIndex)) -> Option<TransitionIndex> {
+        let (source_index, transition_element, target_index) = transition;
+        if let Some(target_and_index) = self.transition_to_index.get(&source_index).and_then(|transitions| transitions.get(transition_element)) {
             if target_index == target_and_index.0 {
                 Some(target_and_index.1)
             } else {
@@ -126,9 +130,9 @@ impl<S: Ord, T: Ord> Dfa<S, T> {
     }
 
     /// Return the transition index of the transition with the outgoing data, if it exists.
-    pub fn transitions_contains_outgoing(&self, transition: (StateIndex, &Tr<T>)) -> Option<TransitionIndex> {
-        let (source_index, transition) = transition;
-        if let Some(&(_, transition_index)) = self.transition_to_index.get(&source_index).and_then(|transitions| transitions.get(transition)) {
+    pub fn transitions_contains_outgoing(&self, transition: (StateIndex, &T)) -> Option<TransitionIndex> {
+        let (source_index, transition_element) = transition;
+        if let Some(&(_, transition_index)) = self.transition_to_index.get(&source_index).and_then(|transitions| transitions.get(transition_element)) {
             Some(transition_index)
         } else {
             None
@@ -136,13 +140,13 @@ impl<S: Ord, T: Ord> Dfa<S, T> {
     }
 
     /// Get the transition at the transition index.
-    pub fn transitions_index(&self, transition_index: TransitionIndex) -> (StateIndex, &Tr<T>, StateIndex) {
+    pub fn transitions_index(&self, transition_index: TransitionIndex) -> (StateIndex, &Interval<T>, StateIndex) {
         let (source_index, transition, target_index) = self.index_to_transition.get(&transition_index).expect("transition index out of bounds");
         (*source_index, transition, *target_index)
     }
 
     /// Convert the transition indices to transitions.
-    pub fn transitions_slice<'a>(&'a self, transition_indices: impl IntoIterator<Item = TransitionIndex> + 'a) -> Box<dyn Iterator<Item = (StateIndex, &Tr<T>, StateIndex)> + 'a> {
+    pub fn transitions_slice<'a>(&'a self, transition_indices: impl IntoIterator<Item = TransitionIndex> + 'a) -> Box<dyn Iterator<Item = (StateIndex, &Interval<T>, StateIndex)> + 'a> {
         Box::new(transition_indices.into_iter().map(move |transition_index| self.transitions_index(transition_index)))
     }
 
@@ -193,47 +197,22 @@ impl<S: Clone + Ord, T: Clone + Ord> From<&Enfa<S, T>> for Dfa<Set<S>, T> {
         let mut dfa = Dfa::new(initial_closure);
         while let Some(source_closure_indices) = stack.pop() {
             let source_index = states_contains_closure_from(&dfa, enfa, source_closure_indices.iter().copied()).expect("closure does not exist");
-            let mut target_closures_indices: Map<Tr<T>, Set<StateIndex>> = Map::new();
+            let mut target_closures_indices: IntervalMap<T, Set<StateIndex>> = IntervalMap::new();
             for &source_closure_index in &source_closure_indices {
                 if enfa.is_final(source_closure_index) {
                     dfa.set_final(source_index);
                 }
-                let mut some_transitions = Set::new();
-                let mut new_else_target_closure_indices: Option<Set<StateIndex>> = None;
                 for transition_index in enfa.transition_indices_from(source_closure_index) {
-                    let (_, transition, target_index) = enfa.transitions_index(transition_index);
-                    if let Etr::Tr(transition) = transition {
-                        some_transitions.insert(transition);
-                        let transition = Tr::Tr(transition.clone());
-                        if let Some(target_closure_indices) = target_closures_indices.get_mut(&transition) {
-                            target_closure_indices.extend(enfa.closure_indices(target_index));
-                        } else {
-                            let mut target_closure_indices: Set<StateIndex> = enfa.closure_indices(target_index).collect();
-                            if let Some(else_closure_indices) = target_closures_indices.get(&Tr::Else) {
-                                target_closure_indices.extend(else_closure_indices);
+                    let (_, transition_interval, target_index) = enfa.transitions_index(transition_index);
+                    if !transition_interval.is_empty() {
+                        target_closures_indices.update(&transition_interval, |target_closure_indices| {
+                            if let Some(mut target_closure_indices) = target_closure_indices {
+                                target_closure_indices.extend(enfa.closure_indices(target_index));
+                                Some(target_closure_indices)
+                            } else {
+                                Some(enfa.closure_indices(target_index).collect())
                             }
-                            target_closures_indices.insert(transition, target_closure_indices);
-                        }
-                    } else if transition.is_else() {
-                        if let Some(new_else_target_closure_indices) = &mut new_else_target_closure_indices {
-                            new_else_target_closure_indices.extend(enfa.closure_indices(target_index));
-                        } else {
-                            new_else_target_closure_indices = Some(enfa.closure_indices(target_index).collect());
-                        }
-                    }
-                }
-                if let Some(new_else_target_closure_indices) = new_else_target_closure_indices {
-                    for (transition, target_closure_indices) in target_closures_indices.iter_mut() {
-                        if let Tr::Tr(transition) = transition {
-                            if !some_transitions.contains(transition) {
-                                target_closure_indices.extend(new_else_target_closure_indices.iter().copied());
-                            }
-                        }
-                    }
-                    if let Some(old_else_target_closure_indices) = target_closures_indices.get_mut(&Tr::Else) {
-                        old_else_target_closure_indices.extend(new_else_target_closure_indices);
-                    } else {
-                        target_closures_indices.insert(Tr::Else, new_else_target_closure_indices);
+                        });
                     }
                 }
             }
@@ -261,48 +240,21 @@ impl<S: Clone + Ord, T: Clone + Ord> From<&Nfa<S, T>> for Dfa<Set<S>, T> {
         let mut dfa = Dfa::new(initial_closure);
         while let Some(source_closure_indices) = stack.pop() {
             let source_index = states_contains_closure_from(&dfa, nfa, source_closure_indices.iter().copied()).expect("closure does not exist");
-            let mut target_closures_indices: Map<Tr<T>, Set<StateIndex>> = Map::new();
+            let mut target_closures_indices: IntervalMap<T, Set<StateIndex>> = IntervalMap::new();
             for &source_closure_index in &source_closure_indices {
                 if nfa.is_final(source_closure_index) {
                     dfa.set_final(source_index);
                 }
-                let mut some_transitions = Set::new();
-                let mut new_else_target_closure_indices: Option<Set<StateIndex>> = None;
                 for transition_index in nfa.transition_indices_from(source_closure_index) {
-                    let (_, transition, target_index) = nfa.transitions_index(transition_index);
-                    if let Tr::Tr(transition) = transition {
-                        some_transitions.insert(transition);
-                        let transition = Tr::Tr(transition.clone());
-                        if let Some(target_closure_indices) = target_closures_indices.get_mut(&transition) {
+                    let (_, transition_interval, target_index) = nfa.transitions_index(transition_index);
+                    target_closures_indices.update(&transition_interval, |target_closure_indices| {
+                        if let Some(mut target_closure_indices) = target_closure_indices {
                             target_closure_indices.insert(target_index);
+                            Some(target_closure_indices)
                         } else {
-                            let mut target_closure_indices = set![target_index];
-                            if let Some(else_closure_indices) = target_closures_indices.get(&Tr::Else) {
-                                target_closure_indices.extend(else_closure_indices);
-                            }
-                            target_closures_indices.insert(transition, target_closure_indices);
+                            Some(set![target_index])
                         }
-                    } else if transition.is_else() {
-                        if let Some(new_else_target_closure_indices) = &mut new_else_target_closure_indices {
-                            new_else_target_closure_indices.insert(target_index);
-                        } else {
-                            new_else_target_closure_indices = Some(set![target_index]);
-                        }
-                    }
-                }
-                if let Some(new_else_target_closure_indices) = new_else_target_closure_indices {
-                    for (transition, target_closure_indices) in target_closures_indices.iter_mut() {
-                        if let Tr::Tr(transition) = transition {
-                            if !some_transitions.contains(transition) {
-                                target_closure_indices.extend(new_else_target_closure_indices.iter().copied());
-                            }
-                        }
-                    }
-                    if let Some(old_else_target_closure_indices) = target_closures_indices.get_mut(&Tr::Else) {
-                        old_else_target_closure_indices.extend(new_else_target_closure_indices);
-                    } else {
-                        target_closures_indices.insert(Tr::Else, new_else_target_closure_indices);
-                    }
+                    });
                 }
             }
             for (transition, target_closure_indices) in target_closures_indices {
@@ -329,47 +281,22 @@ impl<S: Clone + Ord, T: Clone + Ord> Subsume<Enfa<S, T>> for Dfa<Set<S>, T> {
         self.states_insert(initial_closure);
         while let Some(source_closure_indices) = stack.pop() {
             let source_index = states_contains_closure_from(self, enfa, source_closure_indices.iter().copied()).expect("closure does not exist");
-            let mut target_closures_indices: Map<Tr<T>, Set<StateIndex>> = Map::new();
+            let mut target_closures_indices: IntervalMap<T, Set<StateIndex>> = IntervalMap::new();
             for &source_closure_index in &source_closure_indices {
                 if enfa.is_final(source_closure_index) {
                     self.set_final(source_index);
                 }
-                let mut some_transitions = Set::new();
-                let mut new_else_target_closure_indices: Option<Set<StateIndex>> = None;
                 for transition_index in enfa.transition_indices_from(source_closure_index) {
-                    let (_, transition, target_index) = enfa.transitions_index(transition_index);
-                    if let Etr::Tr(transition) = transition {
-                        some_transitions.insert(transition);
-                        let transition = Tr::Tr(transition.clone());
-                        if let Some(target_closure_indices) = target_closures_indices.get_mut(&transition) {
-                            target_closure_indices.extend(enfa.closure_indices(target_index));
-                        } else {
-                            let mut target_closure_indices: Set<StateIndex> = enfa.closure_indices(target_index).collect();
-                            if let Some(else_closure_indices) = target_closures_indices.get(&Tr::Else) {
-                                target_closure_indices.extend(else_closure_indices);
+                    let (_, transition_interval, target_index) = enfa.transitions_index(transition_index);
+                    if !transition_interval.is_empty() {
+                        target_closures_indices.update(&transition_interval, |target_closure_indices| {
+                            if let Some(mut target_closure_indices) = target_closure_indices {
+                                target_closure_indices.extend(enfa.closure_indices(target_index));
+                                Some(target_closure_indices)
+                            } else {
+                                Some(enfa.closure_indices(target_index).collect())
                             }
-                            target_closures_indices.insert(transition, target_closure_indices);
-                        }
-                    } else if transition.is_else() {
-                        if let Some(new_else_target_closure_indices) = &mut new_else_target_closure_indices {
-                            new_else_target_closure_indices.extend(enfa.closure_indices(target_index));
-                        } else {
-                            new_else_target_closure_indices = Some(enfa.closure_indices(target_index).collect());
-                        }
-                    }
-                }
-                if let Some(new_else_target_closure_indices) = new_else_target_closure_indices {
-                    for (transition, target_closure_indices) in target_closures_indices.iter_mut() {
-                        if let Tr::Tr(transition) = transition {
-                            if !some_transitions.contains(transition) {
-                                target_closure_indices.extend(new_else_target_closure_indices.iter().copied());
-                            }
-                        }
-                    }
-                    if let Some(old_else_target_closure_indices) = target_closures_indices.get_mut(&Tr::Else) {
-                        old_else_target_closure_indices.extend(new_else_target_closure_indices);
-                    } else {
-                        target_closures_indices.insert(Tr::Else, new_else_target_closure_indices);
+                        });
                     }
                 }
             }
@@ -396,48 +323,21 @@ impl<S: Clone + Ord, T: Clone + Ord> Subsume<Nfa<S, T>> for Dfa<Set<S>, T> {
         self.states_insert(initial_closure);
         while let Some(source_closure_indices) = stack.pop() {
             let source_index = states_contains_closure_from(self, nfa, source_closure_indices.iter().copied()).expect("closure does not exist");
-            let mut target_closures_indices: Map<Tr<T>, Set<StateIndex>> = Map::new();
+            let mut target_closures_indices: IntervalMap<T, Set<StateIndex>> = IntervalMap::new();
             for &source_closure_index in &source_closure_indices {
                 if nfa.is_final(source_closure_index) {
                     self.set_final(source_index);
                 }
-                let mut some_transitions = Set::new();
-                let mut new_else_target_closure_indices: Option<Set<StateIndex>> = None;
                 for transition_index in nfa.transition_indices_from(source_closure_index) {
-                    let (_, transition, target_index) = nfa.transitions_index(transition_index);
-                    if let Tr::Tr(transition) = transition {
-                        some_transitions.insert(transition);
-                        let transition = Tr::Tr(transition.clone());
-                        if let Some(target_closure_indices) = target_closures_indices.get_mut(&transition) {
+                    let (_, transition_interval, target_index) = nfa.transitions_index(transition_index);
+                    target_closures_indices.update(&transition_interval, |target_closure_indices| {
+                        if let Some(mut target_closure_indices) = target_closure_indices {
                             target_closure_indices.insert(target_index);
+                            Some(target_closure_indices)
                         } else {
-                            let mut target_closure_indices = set![target_index];
-                            if let Some(else_closure_indices) = target_closures_indices.get(&Tr::Else) {
-                                target_closure_indices.extend(else_closure_indices);
-                            }
-                            target_closures_indices.insert(transition, target_closure_indices);
+                            Some(set![target_index])
                         }
-                    } else if transition.is_else() {
-                        if let Some(new_else_target_closure_indices) = &mut new_else_target_closure_indices {
-                            new_else_target_closure_indices.insert(target_index);
-                        } else {
-                            new_else_target_closure_indices = Some(set![target_index]);
-                        }
-                    }
-                }
-                if let Some(new_else_target_closure_indices) = new_else_target_closure_indices {
-                    for (transition, target_closure_indices) in target_closures_indices.iter_mut() {
-                        if let Tr::Tr(transition) = transition {
-                            if !some_transitions.contains(transition) {
-                                target_closure_indices.extend(new_else_target_closure_indices.iter().copied());
-                            }
-                        }
-                    }
-                    if let Some(old_else_target_closure_indices) = target_closures_indices.get_mut(&Tr::Else) {
-                        old_else_target_closure_indices.extend(new_else_target_closure_indices);
-                    } else {
-                        target_closures_indices.insert(Tr::Else, new_else_target_closure_indices);
-                    }
+                    });
                 }
             }
             for (transition, target_closure_indices) in target_closures_indices {
@@ -493,30 +393,16 @@ mod tests {
         collections::BTreeSet as Set,
         fmt::Debug,
     };
-
+    use interval_map::Interval;
     use crate::{
-        Etr,
-        Tr,
         Dfa,
         Nfa,
         Enfa,
     };
 
-    struct Expected<S, T> {
-        initial: S,
-        transitions: Set<(S, Tr<T>, S)>,
-        finals: Set<S>,
-    }
-
-    fn assert_eq<S: Clone + Debug + Ord, T: Clone + Debug + Ord>(expected: Expected<S, T>, actual: Dfa<S, T>) {
-        assert_eq!(expected.initial, actual.states_index(actual.initial_index()).clone());
-        assert_eq!(expected.transitions, actual.transitions_slice(actual.transition_indices()).map(|(source, transition, target)| (actual.states_index(source).clone(), transition.clone(), actual.states_index(target).clone())).collect());
-        assert_eq!(expected.finals, actual.states_slice(actual.final_indices()).cloned().collect());
-    }
-
     #[test]
-    fn test_1() {
-        let expected = Expected::<_, char> {
+    fn test_epsilon() {
+        let expected = Expected::<_, i32> {
             initial: set![0, 1],
             transitions: set![],
             finals: set![set![0, 1]]
@@ -528,100 +414,100 @@ mod tests {
     }
 
     #[test]
-    fn test_2() {
+    fn test_symbol() {
         let expected = Expected {
             initial: set![0],
             transitions: set![
-                (set![0], Tr::Tr('a'), set![1])
+                (set![0], singleton(A), set![1])
             ],
             finals: set![set![1]]
         };
         let mut actual = Dfa::new(set![0]);
         let s0 = actual.initial_index();
         let s1 = actual.states_insert(set![1]);
-        actual.transitions_insert((s0, Tr::Tr('a'), s1));
+        actual.transitions_insert((s0, singleton(A), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_3() {
+    fn test_alternation() {
         let expected = Expected {
             initial: set![0, 1, 2, 3, 4],
             transitions: set![
-                (set![0, 1, 2, 3, 4], Tr::Tr('a'), set![1, 5])
+                (set![0, 1, 2, 3, 4], singleton(A), set![1, 5])
             ],
             finals: set![set![0, 1, 2, 3, 4], set![1, 5]]
         };
         let mut actual = Dfa::new(set![0, 1, 2, 3, 4]);
         let s01234 = actual.initial_index();
         let s15 = actual.states_insert(set![1, 5]);
-        actual.transitions_insert((s01234, Tr::Tr('a'), s15));
+        actual.transitions_insert((s01234, singleton(A), s15));
         actual.set_final(s01234);
         actual.set_final(s15);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_4() {
+    fn test_concatenation() {
         let expected = Expected {
             initial: set![0, 2],
             transitions: set![
-                (set![0, 2], Tr::Tr('a'), set![1, 3, 4, 5])
+                (set![0, 2], singleton(A), set![1, 3, 4, 5])
             ],
             finals: set![set![1, 3, 4, 5]]
         };
         let mut actual = Dfa::new(set![0, 2]);
         let s02 = actual.initial_index();
         let s1345 = actual.states_insert(set![1, 3, 4, 5]);
-        actual.transitions_insert((s02, Tr::Tr('a'), s1345));
+        actual.transitions_insert((s02, singleton(A), s1345));
         actual.set_final(s1345);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_5() {
+    fn test_repetition() {
         let expected = Expected {
             initial: set![0, 1, 2],
             transitions: set![
-                (set![0, 1, 2], Tr::Tr('a'), set![1, 2, 3]),
-                (set![1, 2, 3], Tr::Tr('a'), set![1, 2, 3])
+                (set![0, 1, 2], singleton(A), set![1, 2, 3]),
+                (set![1, 2, 3], singleton(A), set![1, 2, 3])
             ],
             finals: set![set![0, 1, 2], set![1, 2, 3]]
         };
         let mut actual = Dfa::new(set![0, 1, 2]);
         let s012 = actual.initial_index();
         let s123 = actual.states_insert(set![1, 2, 3]);
-        actual.transitions_insert((s012, Tr::Tr('a'), s123));
-        actual.transitions_insert((s123, Tr::Tr('a'), s123));
+        actual.transitions_insert((s012, singleton(A), s123));
+        actual.transitions_insert((s123, singleton(A), s123));
         actual.set_final(s012);
         actual.set_final(s123);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_6() {
-        let expected = Expected {
-            initial: set![0, 2, 4],
-            transitions: set![
-                (set![0, 2, 4], Tr::Tr('a'), set![1, 5])
-            ],
-            finals: set![set![1, 3], set![1, 5]]
-        };
-        let mut actual = Dfa::new(set![0, 2, 4]);
-        let s024 = actual.initial_index();
-        let s13 = actual.states_insert(set![1, 3]);
-        let s15 = actual.states_insert(set![1, 5]);
-        actual.transitions_insert((s024, Tr::Tr('a'), s13));
-        actual.transitions_insert((s024, Tr::Tr('a'), s15)); // this will overwrite
-        actual.set_final(s13);
-        actual.set_final(s15);
-        assert_eq(expected, actual);
+    fn test_nondeterminism() {
+        let mut actual = Dfa::new(set![0]);
+        let s0 = actual.initial_index();
+        let s1 = actual.states_insert(set![1]);
+        let s2 = actual.states_insert(set![2]);
+        actual.transitions_insert((s0, singleton(A), s1));
+        assert!(std::panic::catch_unwind(move || actual.transitions_insert((s0, singleton(A), s2))).is_err());
     }
 
     #[test]
-    fn test_7() {
-        let expected = Expected::<_, char> {
+    fn test_nondeterminism_intervals() {
+        let mut actual = Dfa::new(set![0]);
+        let s0 = actual.initial_index();
+        let s1 = actual.states_insert(set![1]);
+        let s2 = actual.states_insert(set![2]);
+        actual.transitions_insert((s0, interval(A, C), s1));
+        assert!(std::panic::catch_unwind(move || actual.transitions_insert((s0, interval(B, D), s2))).is_err());
+    }
+
+    #[test]
+    fn test_from_enfa_epsilon() {
+        let expected = Expected {
             initial: set![0, 1],
             transitions: set![],
             finals: set![set![0, 1]]
@@ -629,36 +515,36 @@ mod tests {
         let mut enfa = Enfa::new(0);
         let s0 = enfa.initial_index();
         let s1 = enfa.states_insert(1);
-        enfa.transitions_insert((s0, Etr::Epsilon, s1));
+        enfa.transitions_insert((s0, empty(), s1));
         enfa.set_final(s1);
         let actual = Dfa::from(&enfa);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_8() {
+    fn test_from_enfa_symbol() {
         let expected = Expected {
             initial: set![0],
             transitions: set![
-                (set![0], Tr::Tr('a'), set![1])
+                (set![0], singleton(A), set![1])
             ],
             finals: set![set![1]]
         };
         let mut enfa = Enfa::new(0);
         let s0 = enfa.initial_index();
         let s1 = enfa.states_insert(1);
-        enfa.transitions_insert((s0, Etr::Tr('a'), s1));
+        enfa.transitions_insert((s0, singleton(A), s1));
         enfa.set_final(s1);
         let actual = Dfa::from(&enfa);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_9() {
+    fn test_from_enfa_alternation() {
         let expected = Expected {
             initial: set![0, 1, 2, 3, 4],
             transitions: set![
-                (set![0, 1, 2, 3, 4], Tr::Tr('a'), set![1, 5])
+                (set![0, 1, 2, 3, 4], singleton(A), set![1, 5])
             ],
             finals: set![set![0, 1, 2, 3, 4], set![1, 5]]
         };
@@ -669,23 +555,23 @@ mod tests {
         let s3 = enfa.states_insert(3);
         let s4 = enfa.states_insert(4);
         let s5 = enfa.states_insert(5);
-        enfa.transitions_insert((s0, Etr::Epsilon, s2));
-        enfa.transitions_insert((s0, Etr::Epsilon, s4));
-        enfa.transitions_insert((s2, Etr::Epsilon, s3));
-        enfa.transitions_insert((s4, Etr::Tr('a'), s5));
-        enfa.transitions_insert((s3, Etr::Epsilon, s1));
-        enfa.transitions_insert((s5, Etr::Epsilon, s1));
+        enfa.transitions_insert((s0, empty(), s2));
+        enfa.transitions_insert((s0, empty(), s4));
+        enfa.transitions_insert((s2, empty(), s3));
+        enfa.transitions_insert((s4, singleton(A), s5));
+        enfa.transitions_insert((s3, empty(), s1));
+        enfa.transitions_insert((s5, empty(), s1));
         enfa.set_final(s1);
         let actual = Dfa::from(&enfa);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_10() {
+    fn test_from_enfa_concatenation() {
         let expected = Expected {
             initial: set![0, 2],
             transitions: set![
-                (set![0, 2], Tr::Tr('a'), set![1, 3, 4, 5])
+                (set![0, 2], singleton(A), set![1, 3, 4, 5])
             ],
             finals: set![set![1, 3, 4, 5]]
         };
@@ -696,23 +582,23 @@ mod tests {
         let s3 = enfa.states_insert(3);
         let s4 = enfa.states_insert(4);
         let s5 = enfa.states_insert(5);
-        enfa.transitions_insert((s0, Etr::Epsilon, s2));
-        enfa.transitions_insert((s2, Etr::Tr('a'), s3));
-        enfa.transitions_insert((s3, Etr::Epsilon, s4));
-        enfa.transitions_insert((s4, Etr::Epsilon, s5));
-        enfa.transitions_insert((s5, Etr::Epsilon, s1));
+        enfa.transitions_insert((s0, empty(), s2));
+        enfa.transitions_insert((s2, singleton(A), s3));
+        enfa.transitions_insert((s3, empty(), s4));
+        enfa.transitions_insert((s4, empty(), s5));
+        enfa.transitions_insert((s5, empty(), s1));
         enfa.set_final(s1);
         let actual = Dfa::from(&enfa);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_11() {
+    fn test_from_enfa_repetition() {
         let expected = Expected {
             initial: set![0, 1, 2],
             transitions: set![
-                (set![0, 1, 2], Tr::Tr('a'), set![1, 2, 3]),
-                (set![1, 2, 3], Tr::Tr('a'), set![1, 2, 3])
+                (set![0, 1, 2], singleton(A), set![1, 2, 3]),
+                (set![1, 2, 3], singleton(A), set![1, 2, 3])
             ],
             finals: set![set![0, 1, 2], set![1, 2, 3]]
         };
@@ -721,112 +607,22 @@ mod tests {
         let s1 = enfa.states_insert(1);
         let s2 = enfa.states_insert(2);
         let s3 = enfa.states_insert(3);
-        enfa.transitions_insert((s0, Etr::Epsilon, s1));
-        enfa.transitions_insert((s0, Etr::Epsilon, s2));
-        enfa.transitions_insert((s2, Etr::Tr('a'), s3));
-        enfa.transitions_insert((s3, Etr::Epsilon, s2));
-        enfa.transitions_insert((s3, Etr::Epsilon, s1));
+        enfa.transitions_insert((s0, empty(), s1));
+        enfa.transitions_insert((s0, empty(), s2));
+        enfa.transitions_insert((s2, singleton(A), s3));
+        enfa.transitions_insert((s3, empty(), s2));
+        enfa.transitions_insert((s3, empty(), s1));
         enfa.set_final(s1);
         let actual = Dfa::from(&enfa);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_12() {
-        let expected = Expected::<_, char> {
-            initial: set![0],
-            transitions: set![],
-            finals: set![set![0]]
-        };
-        let mut nfa: Nfa<_, char> = Nfa::new(0);
-        let s0 = nfa.initial_index();
-        nfa.set_final(s0);
-        let actual = Dfa::from(&nfa);
-        assert_eq(expected, actual);
-    }
-
-    #[test]
-    fn test_13() {
-        let expected = Expected {
-            initial: set![0],
-            transitions: set![
-                (set![0], Tr::Tr('a'), set![1])
-            ],
-            finals: set![set![1]]
-        };
-        let mut nfa = Nfa::new(0);
-        let s0 = nfa.initial_index();
-        let s1 = nfa.states_insert(1);
-        nfa.transitions_insert((s0, Tr::Tr('a'), s1));
-        nfa.set_final(s1);
-        let actual = Dfa::from(&nfa);
-        assert_eq(expected, actual);
-    }
-
-    #[test]
-    fn test_14() {
-        let expected = Expected {
-            initial: set![0],
-            transitions: set![
-                (set![0], Tr::Tr('a'), set![1])
-            ],
-            finals: set![set![0], set![1]]
-        };
-        let mut nfa = Nfa::new(0);
-        let s0 = nfa.initial_index();
-        let s1 = nfa.states_insert(1);
-        nfa.transitions_insert((s0, Tr::Tr('a'), s1));
-        nfa.set_final(s0);
-        nfa.set_final(s1);
-        let actual = Dfa::from(&nfa);
-        assert_eq(expected, actual);
-    }
-
-    #[test]
-    fn test_15() {
-        let expected = Expected {
-            initial: set![0],
-            transitions: set![
-                (set![0], Tr::Tr('a'), set![1])
-            ],
-            finals: set![set![1]]
-        };
-        let mut nfa = Nfa::new(0);
-        let s0 = nfa.initial_index();
-        let s1 = nfa.states_insert(1);
-        nfa.transitions_insert((s0, Tr::Tr('a'), s1));
-        nfa.set_final(s1);
-        let actual = Dfa::from(&nfa);
-        assert_eq(expected, actual);
-    }
-
-    #[test]
-    fn test_16() {
-        let expected = Expected {
-            initial: set![0],
-            transitions: set![
-                (set![0], Tr::Tr('a'), set![1]),
-                (set![1], Tr::Tr('a'), set![1])
-            ],
-            finals: set![set![0], set![1]]
-        };
-        let mut nfa = Nfa::new(0);
-        let s0 = nfa.initial_index();
-        let s1= nfa.states_insert(1);
-        nfa.transitions_insert((s0, Tr::Tr('a'), s1));
-        nfa.transitions_insert((s1, Tr::Tr('a'), s1));
-        nfa.set_final(s0);
-        nfa.set_final(s1);
-        let actual = Dfa::from(&nfa);
-        assert_eq(expected, actual);
-    }
-
-    #[test]
-    fn test_17() {
+    fn test_from_enfa_nondeterminism() {
         let expected = Expected {
             initial: set![0, 1, 3, 4],
             transitions: set![
-                (set![0, 1, 3, 4], Tr::Tr('a'), set![2, 3, 4])
+                (set![0, 1, 3, 4], singleton(A), set![2, 3, 4])
             ],
             finals: set![set![0, 1, 3, 4], set![2, 3, 4]]
         };
@@ -836,24 +632,114 @@ mod tests {
         let s2 = enfa.states_insert(2);
         let s3 = enfa.states_insert(3);
         let s4 = enfa.states_insert(4);
-        enfa.transitions_insert((s0, Etr::Epsilon, s1));
-        enfa.transitions_insert((s1, Etr::Tr('a'), s2));
-        enfa.transitions_insert((s1, Etr::Tr('a'), s3));
-        enfa.transitions_insert((s0, Etr::Epsilon, s3));
-        enfa.transitions_insert((s2, Etr::Epsilon, s4));
-        enfa.transitions_insert((s3, Etr::Epsilon, s4));
+        enfa.transitions_insert((s0, empty(), s1));
+        enfa.transitions_insert((s1, singleton(A), s2));
+        enfa.transitions_insert((s1, singleton(A), s3));
+        enfa.transitions_insert((s0, empty(), s3));
+        enfa.transitions_insert((s2, empty(), s4));
+        enfa.transitions_insert((s3, empty(), s4));
         enfa.set_final(s4);
         let actual = Dfa::from(&enfa);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_18() {
+    fn test_from_nfa_epsilon() {
+        let expected = Expected::<_, i32> {
+            initial: set![0],
+            transitions: set![],
+            finals: set![set![0]]
+        };
+        let mut nfa: Nfa<_, i32> = Nfa::new(0);
+        let s0 = nfa.initial_index();
+        nfa.set_final(s0);
+        let actual = Dfa::from(&nfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_from_nfa_symbol() {
         let expected = Expected {
             initial: set![0],
             transitions: set![
-                (set![0], Tr::Tr('a'), set![1, 2]),
-                (set![0], Tr::Tr('b'), set![1])
+                (set![0], singleton(A), set![1])
+            ],
+            finals: set![set![1]]
+        };
+        let mut nfa = Nfa::new(0);
+        let s0 = nfa.initial_index();
+        let s1 = nfa.states_insert(1);
+        nfa.transitions_insert((s0, singleton(A), s1));
+        nfa.set_final(s1);
+        let actual = Dfa::from(&nfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_from_nfa_alternation() {
+        let expected = Expected {
+            initial: set![0],
+            transitions: set![
+                (set![0], singleton(A), set![1])
+            ],
+            finals: set![set![0], set![1]]
+        };
+        let mut nfa = Nfa::new(0);
+        let s0 = nfa.initial_index();
+        let s1 = nfa.states_insert(1);
+        nfa.transitions_insert((s0, singleton(A), s1));
+        nfa.set_final(s0);
+        nfa.set_final(s1);
+        let actual = Dfa::from(&nfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_from_nfa_concatenation() {
+        let expected = Expected {
+            initial: set![0],
+            transitions: set![
+                (set![0], singleton(A), set![1])
+            ],
+            finals: set![set![1]]
+        };
+        let mut nfa = Nfa::new(0);
+        let s0 = nfa.initial_index();
+        let s1 = nfa.states_insert(1);
+        nfa.transitions_insert((s0, singleton(A), s1));
+        nfa.set_final(s1);
+        let actual = Dfa::from(&nfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_from_nfa_repetition() {
+        let expected = Expected {
+            initial: set![0],
+            transitions: set![
+                (set![0], singleton(A), set![1]),
+                (set![1], singleton(A), set![1])
+            ],
+            finals: set![set![0], set![1]]
+        };
+        let mut nfa = Nfa::new(0);
+        let s0 = nfa.initial_index();
+        let s1= nfa.states_insert(1);
+        nfa.transitions_insert((s0, singleton(A), s1));
+        nfa.transitions_insert((s1, singleton(A), s1));
+        nfa.set_final(s0);
+        nfa.set_final(s1);
+        let actual = Dfa::from(&nfa);
+        assert_eq(expected, actual);
+    }
+
+    #[test]
+    fn test_from_nfa_nondeterministic() {
+        let expected = Expected {
+            initial: set![0],
+            transitions: set![
+                (set![0], singleton(A), set![1, 2]),
+                (set![0], singleton(B), set![1])
             ],
             finals: set![set![1], set![1, 2]]
         };
@@ -861,12 +747,41 @@ mod tests {
         let s0 = nfa.initial_index();
         let s1 = nfa.states_insert(1);
         let s2 = nfa.states_insert(2);
-        nfa.transitions_insert((s0, Tr::Tr('a'), s1));
-        nfa.transitions_insert((s0, Tr::Tr('a'), s2));
-        nfa.transitions_insert((s0, Tr::Tr('b'), s1));
+        nfa.transitions_insert((s0, singleton(A), s1));
+        nfa.transitions_insert((s0, singleton(A), s2));
+        nfa.transitions_insert((s0, singleton(B), s1));
         nfa.set_final(s1);
         nfa.set_final(s2);
         let actual = Dfa::from(&nfa);
         assert_eq(expected, actual);
     }
+
+    struct Expected<S, T> {
+        initial: S,
+        transitions: Set<(S, Interval<T>, S)>,
+        finals: Set<S>,
+    }
+
+    fn assert_eq<S: Clone + Debug + Ord, T: Clone + Debug + Ord>(expected: Expected<S, T>, actual: Dfa<S, T>) {
+        assert_eq!(expected.initial, actual.states_index(actual.initial_index()).clone());
+        assert_eq!(expected.transitions, actual.transitions_slice(actual.transition_indices()).map(|(source, transition, target)| (actual.states_index(source).clone(), transition.clone(), actual.states_index(target).clone())).collect());
+        assert_eq!(expected.finals, actual.states_slice(actual.final_indices()).cloned().collect());
+    }
+
+    fn empty() -> Interval<i32> {
+        Interval::new(0, 0)
+    }
+
+    fn singleton(value: i32) -> Interval<i32> {
+        Interval::new(value, value + 1)
+    }
+
+    fn interval(lower: i32, upper: i32) -> Interval<i32> {
+        Interval::new(lower, upper)
+    }
+
+    static A: i32 = 0;
+    static B: i32 = 2;
+    static C: i32 = 4;
+    static D: i32 = 6;
 }
