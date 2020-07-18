@@ -23,6 +23,7 @@ use crate::{
 };
 
 /// A nondeterministic finite automaton with epsilon moves.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Enfa<S, T> {
     state_to_index: Map<S, StateIndex>,
     index_to_state: Map<StateIndex, S>,
@@ -315,17 +316,17 @@ mod tests {
 
     #[test]
     fn test_epsilon() {
-        let expected = Expected {
+        let expected = Expected::<_, i32> {
             initial: 0,
             transitions: set![
-                (0, empty(), 1)
+                (0, Interval::empty(), 1)
             ],
             finals: set![1]
         };
         let mut actual = Enfa::new(0);
         let s0 = actual.initial_index();
         let s1 = actual.states_insert(1);
-        actual.transitions_insert((s0, empty(), s1));
+        actual.transitions_insert((s0, Interval::empty(), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -335,14 +336,14 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, singleton(A), 1)
+                (0, Interval::singleton(A), 1)
             ],
             finals: set![1]
         };
         let mut actual = Enfa::new(0);
         let s0 = actual.initial_index();
         let s1 = actual.states_insert(1);
-        actual.transitions_insert((s0, singleton(A), s1));
+        actual.transitions_insert((s0, Interval::singleton(A), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -352,12 +353,12 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, empty(), 2),
-                (0, empty(), 4),
-                (2, empty(), 3),
-                (4, singleton(A), 5),
-                (3, empty(), 1),
-                (5, empty(), 1)
+                (0, Interval::empty(), 2),
+                (0, Interval::empty(), 4),
+                (2, Interval::empty(), 3),
+                (4, Interval::singleton(A), 5),
+                (3, Interval::empty(), 1),
+                (5, Interval::empty(), 1)
             ],
             finals: set![1]
         };
@@ -368,12 +369,12 @@ mod tests {
         let s3 = actual.states_insert(3);
         let s4 = actual.states_insert(4);
         let s5 = actual.states_insert(5);
-        actual.transitions_insert((s0, empty(), s2));
-        actual.transitions_insert((s0, empty(), s4));
-        actual.transitions_insert((s2, empty(), s3));
-        actual.transitions_insert((s4, singleton(A), s5));
-        actual.transitions_insert((s3, empty(), s1));
-        actual.transitions_insert((s5, empty(), s1));
+        actual.transitions_insert((s0, Interval::empty(), s2));
+        actual.transitions_insert((s0, Interval::empty(), s4));
+        actual.transitions_insert((s2, Interval::empty(), s3));
+        actual.transitions_insert((s4, Interval::singleton(A), s5));
+        actual.transitions_insert((s3, Interval::empty(), s1));
+        actual.transitions_insert((s5, Interval::empty(), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -383,11 +384,11 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, empty(), 2),
-                (2, singleton(A), 3),
-                (3, empty(), 4),
-                (4, empty(), 5),
-                (5, empty(), 1)
+                (0, Interval::empty(), 2),
+                (2, Interval::singleton(A), 3),
+                (3, Interval::empty(), 4),
+                (4, Interval::empty(), 5),
+                (5, Interval::empty(), 1)
             ],
             finals: set![1]
         };
@@ -398,11 +399,11 @@ mod tests {
         let s3 = actual.states_insert(3);
         let s4 = actual.states_insert(4);
         let s5 = actual.states_insert(5);
-        actual.transitions_insert((s0, empty(), s2));
-        actual.transitions_insert((s2, singleton(A), s3));
-        actual.transitions_insert((s3, empty(), s4));
-        actual.transitions_insert((s4, empty(), s5));
-        actual.transitions_insert((s5, empty(), s1));
+        actual.transitions_insert((s0, Interval::empty(), s2));
+        actual.transitions_insert((s2, Interval::singleton(A), s3));
+        actual.transitions_insert((s3, Interval::empty(), s4));
+        actual.transitions_insert((s4, Interval::empty(), s5));
+        actual.transitions_insert((s5, Interval::empty(), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -412,11 +413,11 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, empty(), 1),
-                (0, empty(), 2),
-                (2, singleton(A), 3),
-                (3, empty(), 2),
-                (3, empty(), 1)
+                (0, Interval::empty(), 1),
+                (0, Interval::empty(), 2),
+                (2, Interval::singleton(A), 3),
+                (3, Interval::empty(), 2),
+                (3, Interval::empty(), 1)
             ],
             finals: set![1]
         };
@@ -425,11 +426,11 @@ mod tests {
         let s1 = actual.states_insert(1);
         let s2 = actual.states_insert(2);
         let s3 = actual.states_insert(3);
-        actual.transitions_insert((s0, empty(), s1));
-        actual.transitions_insert((s0, empty(), s2));
-        actual.transitions_insert((s2, singleton(A), s3));
-        actual.transitions_insert((s3, empty(), s2));
-        actual.transitions_insert((s3, empty(), s1));
+        actual.transitions_insert((s0, Interval::empty(), s1));
+        actual.transitions_insert((s0, Interval::empty(), s2));
+        actual.transitions_insert((s2, Interval::singleton(A), s3));
+        actual.transitions_insert((s3, Interval::empty(), s2));
+        actual.transitions_insert((s3, Interval::empty(), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -444,14 +445,6 @@ mod tests {
         assert_eq!(expected.initial, actual.states_index(actual.initial_index()).clone(), "initial");
         assert_eq!(expected.transitions, actual.transitions_slice(actual.transition_indices()).map(|(source, transition, target)| (actual.states_index(source).clone(), transition.clone(), actual.states_index(target).clone())).collect(), "transitions");
         assert_eq!(expected.finals, actual.states_slice(actual.final_indices()).cloned().collect(), "finals");
-    }
-
-    fn empty() -> Interval<i32> {
-        Interval::new(0, 0)
-    }
-
-    fn singleton(value: i32) -> Interval<i32> {
-        Interval::new(value, value + 1)
     }
 
     static A: i32 = 0;
