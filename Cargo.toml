@@ -1,6 +1,6 @@
 [package]
 name = "finite-automata"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Robert Durfee <rbd@mit.edu>"]
 description = "A collection of extendable finite automata with immutable state and transition data."
 license-file = "LICENSE"
