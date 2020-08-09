@@ -1,10 +1,10 @@
 use std::collections::BTreeSet as Set;
 
 #[macro_use]
-pub mod util;
-pub mod dfa;
-pub mod nfa;
-pub mod enfa;
+mod util;
+mod dfa;
+mod nfa;
+mod enfa;
 
 /// An index for a state in a finite automaton.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]

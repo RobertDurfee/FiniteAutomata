@@ -1,10 +1,16 @@
 [package]
 name = "finite-automata"
 version = "0.1.0"
-authors = ["Robert Durfee <robert@durfee.io>"]
+authors = ["Robert Durfee <rbd@mit.edu>"]
+description = "A collection of extendable finite automata with immutable state and transition data."
+license-file = "LICENSE"
+repository = "https://github.com/RobertDurfee/FiniteAutomata"
+readme = "README.md"
+keywords = ["finite-automata", "finite-state-machine", "state-machine", "finite-state-automata", "automata"]
+categories = ["data-structures"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-interval-map = { git = "https://github.com/RobertDurfee/IntervalMap" }
+segment-map = "0.1.0"

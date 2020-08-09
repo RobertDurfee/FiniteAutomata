@@ -5,10 +5,10 @@ use std::{
     },
     iter,
 };
-use ::interval_map::{
-    Interval,
-    IntervalMap,
-    interval_map,
+use ::segment_map::{
+    Segment,
+    SegmentMap,
+    segment_map,
 };
 use crate::{
     StateIndex,
@@ -28,8 +28,8 @@ pub struct Enfa<S, T> {
     state_to_index: Map<S, StateIndex>,
     index_to_state: Map<StateIndex, S>,
     next_state_index: u128,
-    transition_to_index: Map<StateIndex, IntervalMap<T, Map<StateIndex, TransitionIndex>>>,
-    index_to_transition: Map<TransitionIndex, (StateIndex, Interval<T>, StateIndex)>,
+    transition_to_index: Map<StateIndex, SegmentMap<T, Map<StateIndex, TransitionIndex>>>,
+    index_to_transition: Map<TransitionIndex, (StateIndex, Segment<T>, StateIndex)>,
     next_transition_index: u128,
     initial_index: StateIndex,
     final_indices: Set<StateIndex>
@@ -92,8 +92,8 @@ impl<S: Ord, T: Ord> Enfa<S, T> {
         while let Some(source_index) = stack.pop() {
             closure.insert(source_index);
             for transition_index in self.transition_indices_from(source_index) {
-                let (_, transition_interval, target_index) = self.transitions_index(transition_index);
-                if transition_interval.is_empty() {
+                let (_, transition_segment, target_index) = self.transitions_index(transition_index);
+                if transition_segment.is_empty() {
                     if !closure.contains(&target_index) {
                         stack.push(target_index);
                     }
@@ -107,8 +107,8 @@ impl<S: Ord, T: Ord> Enfa<S, T> {
 
 impl<S: Clone + Ord, T: Clone + Ord> Enfa<S, T> {
     /// Insert the transition and return the associated transition index.
-    pub fn transitions_insert(&mut self, transition: (StateIndex, Interval<T>, StateIndex)) -> TransitionIndex {
-        let (source_index, transition_interval, target_index) = transition;
+    pub fn transitions_insert(&mut self, transition: (StateIndex, Segment<T>, StateIndex)) -> TransitionIndex {
+        let (source_index, transition_segment, target_index) = transition;
         if self.index_to_state.get(&source_index).is_none() {
             panic!("source state index out of bounds");
         }
@@ -118,10 +118,10 @@ impl<S: Clone + Ord, T: Clone + Ord> Enfa<S, T> {
         let transition_index = self.next_transition_index.into();
         self.next_transition_index += 1;
         if let Some(transitions) = self.transition_to_index.get_mut(&source_index) {
-            transitions.update(&transition_interval, |targets| {
+            transitions.update(&transition_segment, |targets| {
                 if let Some(mut targets) = targets {
                     if targets.get(&target_index).is_some() {
-                        panic!("transition intervals must not overlap");
+                        panic!("transition segments must not overlap");
                     }
                     targets.insert(target_index, transition_index);
                     Some(targets)
@@ -130,9 +130,9 @@ impl<S: Clone + Ord, T: Clone + Ord> Enfa<S, T> {
                 }
             });
         } else {
-            self.transition_to_index.insert(source_index, interval_map![transition_interval.clone() => map![target_index => transition_index]]);
+            self.transition_to_index.insert(source_index, segment_map![transition_segment.clone() => map![target_index => transition_index]]);
         }
-        self.index_to_transition.insert(transition_index, (source_index, transition_interval, target_index));
+        self.index_to_transition.insert(transition_index, (source_index, transition_segment, target_index));
         transition_index
     }
 }
@@ -145,13 +145,13 @@ impl<S: Ord, T: Ord> Enfa<S, T> {
     }
 
     /// Get the transition at the transition index.
-    pub fn transitions_index(&self, transition_index: TransitionIndex) -> (StateIndex, &Interval<T>, StateIndex) {
+    pub fn transitions_index(&self, transition_index: TransitionIndex) -> (StateIndex, &Segment<T>, StateIndex) {
         let (source_index, transition, target_index) = self.index_to_transition.get(&transition_index).expect("transition index out of bounds");
         (*source_index, transition, *target_index)
     }
 
     /// Convert the transition indices to transitions.
-    pub fn transitions_slice<'a>(&'a self, transition_indices: impl IntoIterator<Item = TransitionIndex> + 'a) -> Box<dyn Iterator<Item = (StateIndex, &Interval<T>, StateIndex)> + 'a> {
+    pub fn transitions_slice<'a>(&'a self, transition_indices: impl IntoIterator<Item = TransitionIndex> + 'a) -> Box<dyn Iterator<Item = (StateIndex, &Segment<T>, StateIndex)> + 'a> {
         Box::new(transition_indices.into_iter().map(move |transition_index| self.transitions_index(transition_index)))
     }
 
@@ -311,7 +311,7 @@ mod tests {
         collections::BTreeSet as Set,
         fmt::Debug,
     };
-    use interval_map::Interval;
+    use segment_map::Segment;
     use crate::Enfa;
 
     #[test]
@@ -319,14 +319,14 @@ mod tests {
         let expected = Expected::<_, i32> {
             initial: 0,
             transitions: set![
-                (0, Interval::empty(), 1)
+                (0, Segment::empty(), 1)
             ],
             finals: set![1]
         };
         let mut actual = Enfa::new(0);
         let s0 = actual.initial_index();
         let s1 = actual.states_insert(1);
-        actual.transitions_insert((s0, Interval::empty(), s1));
+        actual.transitions_insert((s0, Segment::empty(), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -336,14 +336,14 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, Interval::singleton(A), 1)
+                (0, Segment::singleton(A), 1)
             ],
             finals: set![1]
         };
         let mut actual = Enfa::new(0);
         let s0 = actual.initial_index();
         let s1 = actual.states_insert(1);
-        actual.transitions_insert((s0, Interval::singleton(A), s1));
+        actual.transitions_insert((s0, Segment::singleton(A), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -353,12 +353,12 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, Interval::empty(), 2),
-                (0, Interval::empty(), 4),
-                (2, Interval::empty(), 3),
-                (4, Interval::singleton(A), 5),
-                (3, Interval::empty(), 1),
-                (5, Interval::empty(), 1)
+                (0, Segment::empty(), 2),
+                (0, Segment::empty(), 4),
+                (2, Segment::empty(), 3),
+                (4, Segment::singleton(A), 5),
+                (3, Segment::empty(), 1),
+                (5, Segment::empty(), 1)
             ],
             finals: set![1]
         };
@@ -369,12 +369,12 @@ mod tests {
         let s3 = actual.states_insert(3);
         let s4 = actual.states_insert(4);
         let s5 = actual.states_insert(5);
-        actual.transitions_insert((s0, Interval::empty(), s2));
-        actual.transitions_insert((s0, Interval::empty(), s4));
-        actual.transitions_insert((s2, Interval::empty(), s3));
-        actual.transitions_insert((s4, Interval::singleton(A), s5));
-        actual.transitions_insert((s3, Interval::empty(), s1));
-        actual.transitions_insert((s5, Interval::empty(), s1));
+        actual.transitions_insert((s0, Segment::empty(), s2));
+        actual.transitions_insert((s0, Segment::empty(), s4));
+        actual.transitions_insert((s2, Segment::empty(), s3));
+        actual.transitions_insert((s4, Segment::singleton(A), s5));
+        actual.transitions_insert((s3, Segment::empty(), s1));
+        actual.transitions_insert((s5, Segment::empty(), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -384,11 +384,11 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, Interval::empty(), 2),
-                (2, Interval::singleton(A), 3),
-                (3, Interval::empty(), 4),
-                (4, Interval::empty(), 5),
-                (5, Interval::empty(), 1)
+                (0, Segment::empty(), 2),
+                (2, Segment::singleton(A), 3),
+                (3, Segment::empty(), 4),
+                (4, Segment::empty(), 5),
+                (5, Segment::empty(), 1)
             ],
             finals: set![1]
         };
@@ -399,11 +399,11 @@ mod tests {
         let s3 = actual.states_insert(3);
         let s4 = actual.states_insert(4);
         let s5 = actual.states_insert(5);
-        actual.transitions_insert((s0, Interval::empty(), s2));
-        actual.transitions_insert((s2, Interval::singleton(A), s3));
-        actual.transitions_insert((s3, Interval::empty(), s4));
-        actual.transitions_insert((s4, Interval::empty(), s5));
-        actual.transitions_insert((s5, Interval::empty(), s1));
+        actual.transitions_insert((s0, Segment::empty(), s2));
+        actual.transitions_insert((s2, Segment::singleton(A), s3));
+        actual.transitions_insert((s3, Segment::empty(), s4));
+        actual.transitions_insert((s4, Segment::empty(), s5));
+        actual.transitions_insert((s5, Segment::empty(), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -413,11 +413,11 @@ mod tests {
         let expected = Expected {
             initial: 0,
             transitions: set![
-                (0, Interval::empty(), 1),
-                (0, Interval::empty(), 2),
-                (2, Interval::singleton(A), 3),
-                (3, Interval::empty(), 2),
-                (3, Interval::empty(), 1)
+                (0, Segment::empty(), 1),
+                (0, Segment::empty(), 2),
+                (2, Segment::singleton(A), 3),
+                (3, Segment::empty(), 2),
+                (3, Segment::empty(), 1)
             ],
             finals: set![1]
         };
@@ -426,18 +426,18 @@ mod tests {
         let s1 = actual.states_insert(1);
         let s2 = actual.states_insert(2);
         let s3 = actual.states_insert(3);
-        actual.transitions_insert((s0, Interval::empty(), s1));
-        actual.transitions_insert((s0, Interval::empty(), s2));
-        actual.transitions_insert((s2, Interval::singleton(A), s3));
-        actual.transitions_insert((s3, Interval::empty(), s2));
-        actual.transitions_insert((s3, Interval::empty(), s1));
+        actual.transitions_insert((s0, Segment::empty(), s1));
+        actual.transitions_insert((s0, Segment::empty(), s2));
+        actual.transitions_insert((s2, Segment::singleton(A), s3));
+        actual.transitions_insert((s3, Segment::empty(), s2));
+        actual.transitions_insert((s3, Segment::empty(), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
 
     struct Expected<S, T> {
         initial: S,
-        transitions: Set<(S, Interval<T>, S)>,
+        transitions: Set<(S, Segment<T>, S)>,
         finals: Set<S>,
     }
 

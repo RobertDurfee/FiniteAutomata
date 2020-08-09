@@ -5,10 +5,10 @@ use std::{
     },
     iter,
 };
-use ::interval_map::{
-    Interval,
-    IntervalMap,
-    interval_map,
+use ::segment_map::{
+    Segment,
+    SegmentMap,
+    segment_map,
 };
 use crate::{
     StateIndex,
@@ -29,8 +29,8 @@ pub struct Nfa<S, T> {
     state_to_index: Map<S, StateIndex>,
     index_to_state: Map<StateIndex, S>,
     next_state_index: u128,
-    transition_to_index: Map<StateIndex, IntervalMap<T, Map<StateIndex, TransitionIndex>>>,
-    index_to_transition: Map<TransitionIndex, (StateIndex, Interval<T>, StateIndex)>,
+    transition_to_index: Map<StateIndex, SegmentMap<T, Map<StateIndex, TransitionIndex>>>,
+    index_to_transition: Map<TransitionIndex, (StateIndex, Segment<T>, StateIndex)>,
     next_transition_index: u128,
     initial_index: StateIndex,
     final_indices: Set<StateIndex>
@@ -89,8 +89,8 @@ impl<S: Ord, T: Ord> Nfa<S, T> {
 
 impl<S: Clone + Ord, T: Clone + Ord> Nfa<S, T> {
     /// Insert the transition and return the associated transition index.
-    pub fn transitions_insert(&mut self, transition: (StateIndex, Interval<T>, StateIndex)) -> TransitionIndex {
-        let (source_index, transition_interval, target_index) = transition;
+    pub fn transitions_insert(&mut self, transition: (StateIndex, Segment<T>, StateIndex)) -> TransitionIndex {
+        let (source_index, transition_segment, target_index) = transition;
         if self.index_to_state.get(&source_index).is_none() {
             panic!("source state index out of bounds");
         }
@@ -100,10 +100,10 @@ impl<S: Clone + Ord, T: Clone + Ord> Nfa<S, T> {
         let transition_index = self.next_transition_index.into();
         self.next_transition_index += 1;
         if let Some(transitions) = self.transition_to_index.get_mut(&source_index) {
-            transitions.update(&transition_interval, |targets| {
+            transitions.update(&transition_segment, |targets| {
                 if let Some(mut targets) = targets {
                     if targets.get(&target_index).is_some() {
-                        panic!("transition intervals must not overlap");
+                        panic!("transition segments must not overlap");
                     }
                     targets.insert(target_index, transition_index);
                     Some(targets)
@@ -112,9 +112,9 @@ impl<S: Clone + Ord, T: Clone + Ord> Nfa<S, T> {
                 }
             });
         } else {
-            self.transition_to_index.insert(source_index, interval_map![transition_interval.clone() => map![target_index => transition_index]]);
+            self.transition_to_index.insert(source_index, segment_map![transition_segment.clone() => map![target_index => transition_index]]);
         }
-        self.index_to_transition.insert(transition_index, (source_index, transition_interval, target_index));
+        self.index_to_transition.insert(transition_index, (source_index, transition_segment, target_index));
         transition_index
     }
 }
@@ -127,13 +127,13 @@ impl<S: Ord, T: Ord> Nfa<S, T> {
     }
 
     /// Get the transition at the transition index.
-    pub fn transitions_index(&self, transition_index: TransitionIndex) -> (StateIndex, &Interval<T>, StateIndex) {
+    pub fn transitions_index(&self, transition_index: TransitionIndex) -> (StateIndex, &Segment<T>, StateIndex) {
         let (source_index, transition, target_index) = self.index_to_transition.get(&transition_index).expect("transition index out of bounds");
         (*source_index, transition, *target_index)
     }
 
     /// Convert the transition indices to transitions.
-    pub fn transitions_slice<'a>(&'a self, transition_indices: impl IntoIterator<Item = TransitionIndex> + 'a) -> Box<dyn Iterator<Item = (StateIndex, &Interval<T>, StateIndex)> + 'a> {
+    pub fn transitions_slice<'a>(&'a self, transition_indices: impl IntoIterator<Item = TransitionIndex> + 'a) -> Box<dyn Iterator<Item = (StateIndex, &Segment<T>, StateIndex)> + 'a> {
         Box::new(transition_indices.into_iter().map(move |transition_index| self.transitions_index(transition_index)))
     }
 
@@ -319,7 +319,7 @@ mod tests {
         collections::BTreeSet as Set,
         fmt::Debug,
     };
-    use interval_map::Interval;
+    use segment_map::Segment;
     use crate::{
         Nfa,
         Enfa,
@@ -343,14 +343,14 @@ mod tests {
         let expected = Expected {
             initial: set![0],
             transitions: set![
-                (set![0], Interval::singleton(A), set![1])
+                (set![0], Segment::singleton(A), set![1])
             ],
             finals: set![set![1]]
         };
         let mut actual = Nfa::new(set![0]);
         let s0 = actual.initial_index();
         let s1 = actual.states_insert(set![1]);
-        actual.transitions_insert((s0, Interval::singleton(A), s1));
+        actual.transitions_insert((s0, Segment::singleton(A), s1));
         actual.set_final(s1);
         assert_eq(expected, actual);
     }
@@ -360,14 +360,14 @@ mod tests {
         let expected = Expected {
             initial: set![0, 1, 2, 3, 4],
             transitions: set![
-                (set![0, 1, 2, 3, 4], Interval::singleton(A), set![1, 5])
+                (set![0, 1, 2, 3, 4], Segment::singleton(A), set![1, 5])
             ],
             finals: set![set![0, 1, 2, 3, 4], set![1, 5]]
         };
         let mut actual = Nfa::new(set![0, 1, 2, 3, 4]);
         let s01234 = actual.initial_index();
         let s15 = actual.states_insert(set![1, 5]);
-        actual.transitions_insert((s01234, Interval::singleton(A), s15));
+        actual.transitions_insert((s01234, Segment::singleton(A), s15));
         actual.set_final(s01234);
         actual.set_final(s15);
         assert_eq(expected, actual);
@@ -378,14 +378,14 @@ mod tests {
         let expected = Expected {
             initial: set![0, 2],
             transitions: set![
-                (set![0, 2], Interval::singleton(A), set![1, 3, 4, 5])
+                (set![0, 2], Segment::singleton(A), set![1, 3, 4, 5])
             ],
             finals: set![set![1, 3, 4, 5]]
         };
         let mut actual = Nfa::new(set![0, 2]);
         let s02 = actual.initial_index();
         let s1345 = actual.states_insert(set![1, 3, 4, 5]);
-        actual.transitions_insert((s02, Interval::singleton(A), s1345));
+        actual.transitions_insert((s02, Segment::singleton(A), s1345));
         actual.set_final(s1345);
         assert_eq(expected, actual);
     }
@@ -395,16 +395,16 @@ mod tests {
         let expected = Expected {
             initial: set![0, 1, 2],
             transitions: set![
-                (set![0, 1, 2], Interval::singleton(A), set![1, 2, 3]),
-                (set![1, 2, 3], Interval::singleton(A), set![1, 2, 3])
+                (set![0, 1, 2], Segment::singleton(A), set![1, 2, 3]),
+                (set![1, 2, 3], Segment::singleton(A), set![1, 2, 3])
             ],
             finals: set![set![0, 1, 2], set![1, 2, 3]]
         };
         let mut actual = Nfa::new(set![0, 1, 2]);
         let s012 = actual.initial_index();
         let s123 = actual.states_insert(set![1, 2, 3]);
-        actual.transitions_insert((s012, Interval::singleton(A), s123));
-        actual.transitions_insert((s123, Interval::singleton(A), s123));
+        actual.transitions_insert((s012, Segment::singleton(A), s123));
+        actual.transitions_insert((s123, Segment::singleton(A), s123));
         actual.set_final(s012);
         actual.set_final(s123);
         assert_eq(expected, actual);
@@ -415,8 +415,8 @@ mod tests {
         let expected = Expected {
             initial: set![0, 2, 4],
             transitions: set![
-                (set![0, 2, 4], Interval::singleton(A), set![1, 3]),
-                (set![0, 2, 4], Interval::singleton(A), set![1, 5])
+                (set![0, 2, 4], Segment::singleton(A), set![1, 3]),
+                (set![0, 2, 4], Segment::singleton(A), set![1, 5])
             ],
             finals: set![set![1, 3], set![1, 5]]
         };
@@ -424,20 +424,20 @@ mod tests {
         let s024 = actual.initial_index();
         let s13 = actual.states_insert(set![1, 3]);
         let s15 = actual.states_insert(set![1, 5]);
-        actual.transitions_insert((s024, Interval::singleton(A), s13));
-        actual.transitions_insert((s024, Interval::singleton(A), s15));
+        actual.transitions_insert((s024, Segment::singleton(A), s13));
+        actual.transitions_insert((s024, Segment::singleton(A), s15));
         actual.set_final(s13);
         actual.set_final(s15);
         assert_eq(expected, actual);
     }
 
     #[test]
-    fn test_nondeterminism_intervals() {
+    fn test_nondeterminism_segments() {
         let expected = Expected {
             initial: set![0],
             transitions: set![
-                (set![0], Interval::closed_open(A, C), set![1]),
-                (set![0], Interval::closed_open(B, D), set![2])
+                (set![0], Segment::closed_open(A, C), set![1]),
+                (set![0], Segment::closed_open(B, D), set![2])
             ],
             finals: set![set![1], set![2]]
         };
@@ -445,8 +445,8 @@ mod tests {
         let s0 = actual.initial_index();
         let s1 = actual.states_insert(set![1]);
         let s2 = actual.states_insert(set![2]);
-        let t0 = actual.transitions_insert((s0, Interval::closed_open(A, C), s1));
-        let t1 = actual.transitions_insert((s0, Interval::closed_open(B, D), s2));
+        let t0 = actual.transitions_insert((s0, Segment::closed_open(A, C), s1));
+        let t1 = actual.transitions_insert((s0, Segment::closed_open(B, D), s2));
         actual.set_final(s1);
         actual.set_final(s2);
         assert_eq!(Some(t0), actual.transitions_contains((s0, &A, s1)));
@@ -470,7 +470,7 @@ mod tests {
         let mut enfa = Enfa::new(0);
         let s0 = enfa.initial_index();
         let s1 = enfa.states_insert(1);
-        enfa.transitions_insert((s0, Interval::empty(), s1));
+        enfa.transitions_insert((s0, Segment::empty(), s1));
         enfa.set_final(s1);
         let actual = Nfa::from(&enfa);
         assert_eq(expected, actual);
@@ -481,14 +481,14 @@ mod tests {
         let expected = Expected {
             initial: set![0],
             transitions: set![
-                (set![0], Interval::singleton(A), set![1])
+                (set![0], Segment::singleton(A), set![1])
             ],
             finals: set![set![1]]
         };
         let mut enfa = Enfa::new(0);
         let s0 = enfa.initial_index();
         let s1 = enfa.states_insert(1);
-        enfa.transitions_insert((s0, Interval::singleton(A), s1));
+        enfa.transitions_insert((s0, Segment::singleton(A), s1));
         enfa.set_final(s1);
         let actual = Nfa::from(&enfa);
         assert_eq(expected, actual);
@@ -499,7 +499,7 @@ mod tests {
         let expected = Expected {
             initial: set![0, 1, 2, 3, 4],
             transitions: set![
-                (set![0, 1, 2, 3, 4], Interval::singleton(A), set![1, 5])
+                (set![0, 1, 2, 3, 4], Segment::singleton(A), set![1, 5])
             ],
             finals: set![set![0, 1, 2, 3, 4], set![1, 5]]
         };
@@ -510,12 +510,12 @@ mod tests {
         let s3 = enfa.states_insert(3);
         let s4 = enfa.states_insert(4);
         let s5 = enfa.states_insert(5);
-        enfa.transitions_insert((s0, Interval::empty(), s2));
-        enfa.transitions_insert((s0, Interval::empty(), s4));
-        enfa.transitions_insert((s2, Interval::empty(), s3));
-        enfa.transitions_insert((s4, Interval::singleton(A), s5));
-        enfa.transitions_insert((s3, Interval::empty(), s1));
-        enfa.transitions_insert((s5, Interval::empty(), s1));
+        enfa.transitions_insert((s0, Segment::empty(), s2));
+        enfa.transitions_insert((s0, Segment::empty(), s4));
+        enfa.transitions_insert((s2, Segment::empty(), s3));
+        enfa.transitions_insert((s4, Segment::singleton(A), s5));
+        enfa.transitions_insert((s3, Segment::empty(), s1));
+        enfa.transitions_insert((s5, Segment::empty(), s1));
         enfa.set_final(s1);
         let actual = Nfa::from(&enfa);
         assert_eq(expected, actual);
@@ -526,7 +526,7 @@ mod tests {
         let expected = Expected {
             initial: set![0, 2],
             transitions: set![
-                (set![0, 2], Interval::singleton(A), set![1, 3, 4, 5])
+                (set![0, 2], Segment::singleton(A), set![1, 3, 4, 5])
             ],
             finals: set![set![1, 3, 4, 5]]
         };
@@ -537,11 +537,11 @@ mod tests {
         let s3 = enfa.states_insert(3);
         let s4 = enfa.states_insert(4);
         let s5 = enfa.states_insert(5);
-        enfa.transitions_insert((s0, Interval::empty(), s2));
-        enfa.transitions_insert((s2, Interval::singleton(A), s3));
-        enfa.transitions_insert((s3, Interval::empty(), s4));
-        enfa.transitions_insert((s4, Interval::empty(), s5));
-        enfa.transitions_insert((s5, Interval::empty(), s1));
+        enfa.transitions_insert((s0, Segment::empty(), s2));
+        enfa.transitions_insert((s2, Segment::singleton(A), s3));
+        enfa.transitions_insert((s3, Segment::empty(), s4));
+        enfa.transitions_insert((s4, Segment::empty(), s5));
+        enfa.transitions_insert((s5, Segment::empty(), s1));
         enfa.set_final(s1);
         let actual = Nfa::from(&enfa);
         assert_eq(expected, actual);
@@ -552,8 +552,8 @@ mod tests {
         let expected = Expected {
             initial: set![0, 1, 2],
             transitions: set![
-                (set![0, 1, 2], Interval::singleton(A), set![1, 2, 3]),
-                (set![1, 2, 3], Interval::singleton(A), set![1, 2, 3])
+                (set![0, 1, 2], Segment::singleton(A), set![1, 2, 3]),
+                (set![1, 2, 3], Segment::singleton(A), set![1, 2, 3])
             ],
             finals: set![set![0, 1, 2], set![1, 2, 3]]
         };
@@ -562,11 +562,11 @@ mod tests {
         let s1 = enfa.states_insert(1);
         let s2 = enfa.states_insert(2);
         let s3 = enfa.states_insert(3);
-        enfa.transitions_insert((s0, Interval::empty(), s1));
-        enfa.transitions_insert((s0, Interval::empty(), s2));
-        enfa.transitions_insert((s2, Interval::singleton(A), s3));
-        enfa.transitions_insert((s3, Interval::empty(), s2));
-        enfa.transitions_insert((s3, Interval::empty(), s1));
+        enfa.transitions_insert((s0, Segment::empty(), s1));
+        enfa.transitions_insert((s0, Segment::empty(), s2));
+        enfa.transitions_insert((s2, Segment::singleton(A), s3));
+        enfa.transitions_insert((s3, Segment::empty(), s2));
+        enfa.transitions_insert((s3, Segment::empty(), s1));
         enfa.set_final(s1);
         let actual = Nfa::from(&enfa);
         assert_eq(expected, actual);
@@ -574,7 +574,7 @@ mod tests {
 
     struct Expected<S, T> {
         initial: S,
-        transitions: Set<(S, Interval<T>, S)>,
+        transitions: Set<(S, Segment<T>, S)>,
         finals: Set<S>,
     }
 
