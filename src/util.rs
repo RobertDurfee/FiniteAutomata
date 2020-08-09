@@ -1,4 +1,3 @@
-#[macro_export]
 macro_rules! map {
     ($($x:expr => $y:expr),*) => {{
         #[allow(unused_mut)]
@@ -8,7 +7,6 @@ macro_rules! map {
     }}
 }
 
-#[macro_export]
 macro_rules! set {
     ($($x:expr),*) => {{
         #[allow(unused_mut)]
@@ -17,13 +15,3 @@ macro_rules! set {
         temp_set
     }}
 }
-
-/*#[macro_export]
-macro_rules! interval_tree {
-    ($($x:expr => $y:expr),*) => {{
-        #[allow(unused_mut)]
-        let mut temp_interval_tree = interval_tree::IntervalTree::new();
-        $(temp_interval_tree.insert($x, $y);)*
-        temp_interval_tree
-    }}
-}*/
