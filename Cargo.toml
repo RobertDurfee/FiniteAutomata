@@ -6,7 +6,7 @@ description = "A collection of extendable finite automata with immutable state a
 license-file = "LICENSE"
 repository = "https://github.com/RobertDurfee/FiniteAutomata"
 readme = "README.md"
-keywords = ["finite-automata", "finite-state-machine", "state-machine", "finite-state-automata", "automata"]
+keywords = ["finite-automata", "finite-state-machine", "state-machine", "automata"]
 categories = ["data-structures"]
 edition = "2018"
 
